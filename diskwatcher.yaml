@@ -1,0 +1,43 @@
+# diskwatcher.yaml — mu2edaq disk watcher configuration
+#
+# Values in the "watcher" section are defaults.  Any setting can be
+# overridden on the command line (e.g. --port 8080 overrides watcher.web_port).
+# If this file is absent, the hardcoded defaults in diskwatcher.py are used.
+
+watcher:
+  web_host:      "0.0.0.0"   # Bind address for the Flask web server
+  web_port:      5002         # HTTP port for the dashboard
+  poll_interval: 30           # Seconds between mtime checks
+  daemon:        false        # Set to true to run as a background daemon (POSIX only)
+  pid_file:      "/tmp/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
+  log_file:      "/tmp/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
+
+# Individual files to watch.
+# Each entry requires a "path" (absolute or relative) and a "delay"
+# (staleness threshold in seconds).  An optional "label" is shown in the
+# dashboard instead of the raw path.
+files:
+  - path:  /tmp/diskwatcher-example.txt
+    delay: 300          # flag as stale if not written within 5 minutes
+    label: "Example file (tmp)"
+
+  - path:  /var/log/system.log
+    delay: 3600         # flag as stale if not written within 1 hour
+    label: "System log"
+
+  - path:  /mu2edaq/mydata.dat
+    delay: 600          # flag as stale if not written within 10 minutes
+    label: "Example Important data file"
+
+
+# Directories to watch.
+# The mtime of a directory changes when files are added or removed.
+# To detect writes to files *inside* the directory, list those files
+# individually in the "files" section above.
+paths:
+  - path:  /tmp
+    delay: 600          # flag as stale if the directory has not changed in 10 minutes
+    label: "Temp directory"
+  - path: /data
+    delay: 300          # flag as stale if the directory has not changed in 1 hour
+    label: "Main Data directory"
