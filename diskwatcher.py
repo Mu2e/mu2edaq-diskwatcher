@@ -18,6 +18,7 @@ import html as _html
 import importlib.metadata
 import os
 import platform
+import shutil
 import socket as _socket
 import sys
 import threading
@@ -139,6 +140,17 @@ def fmt_duration(seconds) -> str:
     return f"{s}s"
 
 
+def fmt_bytes(n) -> str:
+    """Format a byte count as a human-readable string (e.g. '3.7\u00a0GiB')."""
+    if n is None:
+        return "\u2014"
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
+        if abs(n) < 1024.0:
+            return f"{n:.1f}\u00a0{unit}"
+        n /= 1024.0
+    return f"{n:.1f}\u00a0EiB"
+
+
 # ---------------------------------------------------------------------------
 # Config loader
 # ---------------------------------------------------------------------------
@@ -195,36 +207,66 @@ def _do_poll() -> None:
         try:
             mtime = os.path.getmtime(path)
             age_s = now - mtime
+
+            # Disk-space metrics (directories only)
+            if kind == "directory":
+                try:
+                    usage = shutil.disk_usage(path)
+                    disk_total     = usage.total
+                    disk_used      = usage.used
+                    disk_free      = usage.free
+                    disk_pct       = round(usage.used / usage.total * 100, 1) if usage.total else 0.0
+                    disk_total_str = fmt_bytes(usage.total)
+                    disk_free_str  = fmt_bytes(usage.free)
+                except OSError:
+                    disk_total = disk_used = disk_free = disk_pct = None
+                    disk_total_str = disk_free_str = None
+            else:
+                disk_total = disk_used = disk_free = disk_pct = None
+                disk_total_str = disk_free_str = None
+
             new_states.append({
-                "path":      path,
-                "label":     label,
-                "delay":     delay,
-                "kind":      kind,
-                "mtime":     mtime,
-                "mtime_str": datetime.fromtimestamp(
-                    mtime, tz=timezone.utc
-                ).strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "age_s":     age_s,
-                "age_str":   fmt_duration(age_s),
-                "delay_str": fmt_duration(delay),
-                "stale":     age_s > delay,
-                "missing":   False,
-                "error":     None,
+                "path":           path,
+                "label":          label,
+                "delay":          delay,
+                "kind":           kind,
+                "mtime":          mtime,
+                "mtime_str":      datetime.fromtimestamp(
+                                      mtime, tz=timezone.utc
+                                  ).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "age_s":          age_s,
+                "age_str":        fmt_duration(age_s),
+                "delay_str":      fmt_duration(delay),
+                "stale":          age_s > delay,
+                "missing":        False,
+                "error":          None,
+                "disk_total":     disk_total,
+                "disk_used":      disk_used,
+                "disk_free":      disk_free,
+                "disk_pct":       disk_pct,
+                "disk_total_str": disk_total_str,
+                "disk_free_str":  disk_free_str,
             })
         except OSError as exc:
             new_states.append({
-                "path":      path,
-                "label":     label,
-                "delay":     delay,
-                "kind":      kind,
-                "mtime":     None,
-                "mtime_str": "\u2014",
-                "age_s":     None,
-                "age_str":   "\u2014",
-                "delay_str": fmt_duration(delay),
-                "stale":     True,   # missing files are also considered stale
-                "missing":   True,
-                "error":     str(exc),
+                "path":           path,
+                "label":          label,
+                "delay":          delay,
+                "kind":           kind,
+                "mtime":          None,
+                "mtime_str":      "\u2014",
+                "age_s":          None,
+                "age_str":        "\u2014",
+                "delay_str":      fmt_duration(delay),
+                "stale":          True,   # missing files are also considered stale
+                "missing":        True,
+                "error":          str(exc),
+                "disk_total":     None,
+                "disk_used":      None,
+                "disk_free":      None,
+                "disk_pct":       None,
+                "disk_total_str": None,
+                "disk_free_str":  None,
             })
     with state_lock:
         file_states.clear()
@@ -424,10 +466,11 @@ WATCHER_HTML = r"""<!doctype html>
               </th>
               <th>Age</th>
               <th>Threshold</th>
+              <th>Disk Space</th>
             </tr>
           </thead>
           <tbody id="tbody-dirs">
-            <tr><td colspan="5" class="text-muted p-3">Loading&hellip;</td></tr>
+            <tr><td colspan="6" class="text-muted p-3">Loading&hellip;</td></tr>
           </tbody>
         </table>
       </div>
@@ -528,6 +571,26 @@ function buildRows(entries) {
     // Threshold
     html += '<td class="text-muted small text-nowrap">' + escHtml(f.delay_str) + '</td>';
 
+    // Disk space (directory entries only)
+    if (f.kind === 'directory') {
+      if (f.disk_pct != null) {
+        let barCls = 'bg-success';
+        if      (f.disk_pct >= 90) barCls = 'bg-danger';
+        else if (f.disk_pct >= 75) barCls = 'bg-warning';
+        const pct = f.disk_pct.toFixed(1);
+        html += '<td style="min-width:170px">' +
+          '<div class="progress mb-1" style="height:16px" title="' + pct + '% used">' +
+          '<div class="progress-bar ' + barCls + '" role="progressbar" ' +
+          'style="width:' + pct + '%" aria-valuenow="' + pct + '" ' +
+          'aria-valuemin="0" aria-valuemax="100">' + pct + '%</div></div>' +
+          '<small class="text-muted">' +
+          escHtml(f.disk_free_str) + ' free of ' + escHtml(f.disk_total_str) +
+          '</small></td>';
+      } else {
+        html += '<td class="text-muted small">\u2014</td>';
+      }
+    }
+
     html += '</tr>';
   }
   return html;
@@ -550,8 +613,9 @@ function renderSection(section, data) {
 
   const rows = buildRows(sorted);
   if (rows === null) {
-    const noun = section === 'files' ? 'files' : 'directories';
-    tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-3">No ' + noun +
+    const noun    = section === 'files' ? 'files' : 'directories';
+    const colspan = section === 'files' ? 5 : 6;
+    tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="text-muted p-3">No ' + noun +
       ' configured. Add entries to the YAML config file.</td></tr>';
   } else {
     tbody.innerHTML = rows;
