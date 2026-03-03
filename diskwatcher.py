@@ -381,6 +381,7 @@ WATCHER_HTML = r"""<!doctype html>
         <table class="table table-sm table-hover mb-0">
           <thead class="table-light">
             <tr>
+              <th>Status</th>
               <th class="sort-th" onclick="toggleSort('files','name')">
                 Label / Path <span id="sort-files-name"></span>
               </th>
@@ -389,7 +390,6 @@ WATCHER_HTML = r"""<!doctype html>
               </th>
               <th>Age</th>
               <th>Threshold</th>
-              <th>Status</th>
             </tr>
           </thead>
           <tbody id="tbody-files">
@@ -413,6 +413,7 @@ WATCHER_HTML = r"""<!doctype html>
         <table class="table table-sm table-hover mb-0">
           <thead class="table-light">
             <tr>
+              <th>Status</th>
               <th class="sort-th" onclick="toggleSort('dirs','name')">
                 Label / Path <span id="sort-dirs-name"></span>
               </th>
@@ -421,7 +422,6 @@ WATCHER_HTML = r"""<!doctype html>
               </th>
               <th>Age</th>
               <th>Threshold</th>
-              <th>Status</th>
             </tr>
           </thead>
           <tbody id="tbody-dirs">
@@ -497,6 +497,15 @@ function buildRows(entries) {
     else if (f.stale) rowClass = ' class="table-danger"';
     html += '<tr' + rowClass + '>';
 
+    // Status badge (first column)
+    if (f.missing) {
+      html += '<td><span class="badge badge-missing">missing</span></td>';
+    } else if (f.stale) {
+      html += '<td><span class="badge badge-stale">stale</span></td>';
+    } else {
+      html += '<td><span class="badge badge-ok">ok</span></td>';
+    }
+
     // Label / Path
     if (f.label && f.label !== f.path) {
       html += '<td><strong>' + escHtml(f.label) + '</strong><br>' +
@@ -516,15 +525,6 @@ function buildRows(entries) {
 
     // Threshold
     html += '<td class="text-muted small text-nowrap">' + escHtml(f.delay_str) + '</td>';
-
-    // Status badge
-    if (f.missing) {
-      html += '<td><span class="badge badge-missing">missing</span></td>';
-    } else if (f.stale) {
-      html += '<td><span class="badge badge-stale">stale</span></td>';
-    } else {
-      html += '<td><span class="badge badge-ok">ok</span></td>';
-    }
 
     html += '</tr>';
   }
