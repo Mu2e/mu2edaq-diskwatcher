@@ -14,12 +14,15 @@ Usage:
 
 import argparse
 import atexit
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as _html
 import importlib.metadata
 import os
 import platform
+import shlex
 import shutil
 import socket as _socket
+import subprocess
 import sys
 import threading
 import time
@@ -183,94 +186,212 @@ def entries_from_config(cfg: dict) -> list:
                 path  = item.get("path", "")
                 delay = int(item.get("delay", 300))
                 label = item.get("label") or path
+                ssh   = item.get("ssh") or None   # dict or None
             else:
                 path  = str(item)
                 delay = 300
                 label = path
+                ssh   = None
             if path:
-                entries.append({"path": path, "delay": delay, "label": label, "kind": kind})
+                entries.append({"path": path, "delay": delay, "label": label,
+                                 "kind": kind, "ssh": ssh})
     return entries
+
+
+# ---------------------------------------------------------------------------
+# SSH helpers
+# ---------------------------------------------------------------------------
+def _build_ssh_cmd(ssh_cfg: dict, remote_argv: list) -> list:
+    """Return a subprocess argument list for an SSH command.
+
+    *remote_argv* is the command to run on the remote host.  Each element
+    is shell-quoted before being appended because SSH joins the remote
+    arguments into a single string and hands it to the remote shell.
+    """
+    timeout = int(ssh_cfg.get("timeout", 10))
+    cmd = [
+        "ssh",
+        "-o", "BatchMode=yes",           # never prompt for a password
+        "-o", f"ConnectTimeout={timeout}",
+    ]
+    if ssh_cfg.get("port"):
+        cmd += ["-p", str(ssh_cfg["port"])]
+    if ssh_cfg.get("key"):
+        cmd += ["-i", os.path.expanduser(str(ssh_cfg["key"]))]
+    extra = ssh_cfg.get("options", "")
+    if isinstance(extra, list):
+        cmd += extra
+    elif extra:
+        cmd += shlex.split(str(extra))
+    cmd.append(str(ssh_cfg["host"]))
+    cmd += [shlex.quote(a) for a in remote_argv]
+    return cmd
+
+
+def _remote_stat(path: str, ssh_cfg: dict) -> tuple:
+    """Return ``(mtime_float, None)`` or ``(None, error_str)`` via SSH.
+
+    Runs ``stat -c %Y <path>`` on the remote host, which prints the
+    last-modification time as a Unix timestamp (seconds since epoch).
+    This syntax is Linux/GNU stat; macOS/BSD stat uses ``-f %m``.
+    """
+    timeout = int(ssh_cfg.get("timeout", 10))
+    cmd = _build_ssh_cmd(ssh_cfg, ["stat", "-c", "%Y", path])
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=timeout + 2)
+        if result.returncode != 0:
+            msg = result.stderr.strip() or f"stat exited {result.returncode}"
+            return None, msg
+        return float(result.stdout.strip()), None
+    except subprocess.TimeoutExpired:
+        return None, f"SSH timed out after {timeout} s"
+    except FileNotFoundError:
+        return None, "ssh executable not found in PATH"
+    except (ValueError, OSError) as exc:
+        return None, str(exc)
+
+
+def _remote_disk_usage(path: str, ssh_cfg: dict) -> tuple:
+    """Return ``(total, used, free, None)`` or ``(None,None,None, error_str)``.
+
+    Runs a one-liner Python 3 script on the remote host via SSH so the
+    result is independent of ``df`` flag differences between platforms.
+    """
+    timeout = int(ssh_cfg.get("timeout", 10))
+    py_snippet = (
+        "import shutil,sys; "
+        "u=shutil.disk_usage(sys.argv[1]); "
+        "print(u.total, u.used, u.free)"
+    )
+    cmd = _build_ssh_cmd(ssh_cfg, ["python3", "-c", py_snippet, path])
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=timeout + 2)
+        if result.returncode != 0:
+            msg = result.stderr.strip() or f"disk_usage exited {result.returncode}"
+            return None, None, None, msg
+        total, used, free = map(int, result.stdout.strip().split())
+        return total, used, free, None
+    except subprocess.TimeoutExpired:
+        return None, None, None, f"SSH timed out after {timeout} s"
+    except FileNotFoundError:
+        return None, None, None, "ssh executable not found in PATH"
+    except (ValueError, OSError) as exc:
+        return None, None, None, str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Per-entry poll helper (called concurrently)
+# ---------------------------------------------------------------------------
+def _poll_entry(entry: dict, now: float) -> dict:
+    """Stat one watch entry and return its complete state dict."""
+    path    = entry["path"]
+    delay   = entry["delay"]
+    label   = entry.get("label") or path
+    kind    = entry.get("kind", "file")
+    ssh_cfg = entry.get("ssh")
+    remote  = ssh_cfg is not None
+
+    base = {
+        "path":     path,
+        "label":    label,
+        "delay":    delay,
+        "kind":     kind,
+        "remote":   remote,
+        "ssh_host": str(ssh_cfg.get("host", "")) if ssh_cfg else None,
+    }
+
+    _NO_DISK = {
+        "disk_total": None, "disk_used": None, "disk_free": None,
+        "disk_pct": None, "disk_total_str": None, "disk_free_str": None,
+    }
+
+    try:
+        # ---- mtime ----
+        if ssh_cfg:
+            mtime, err = _remote_stat(path, ssh_cfg)
+            if err:
+                raise OSError(err)
+        else:
+            mtime = os.path.getmtime(path)
+
+        age_s = now - mtime
+        base.update({
+            "mtime":     mtime,
+            "mtime_str": datetime.fromtimestamp(
+                             mtime, tz=timezone.utc
+                         ).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "age_s":     age_s,
+            "age_str":   fmt_duration(age_s),
+            "delay_str": fmt_duration(delay),
+            "stale":     age_s > delay,
+            "missing":   False,
+            "error":     None,
+        })
+
+        # ---- disk usage (directories only) ----
+        if kind == "directory":
+            try:
+                if ssh_cfg:
+                    total, used, free, derr = _remote_disk_usage(path, ssh_cfg)
+                    if derr:
+                        raise OSError(derr)
+                else:
+                    u = shutil.disk_usage(path)
+                    total, used, free = u.total, u.used, u.free
+                pct = round(used / total * 100, 1) if total else 0.0
+                base.update({
+                    "disk_total":     total,
+                    "disk_used":      used,
+                    "disk_free":      free,
+                    "disk_pct":       pct,
+                    "disk_total_str": fmt_bytes(total),
+                    "disk_free_str":  fmt_bytes(free),
+                })
+            except OSError:
+                base.update(_NO_DISK)
+        else:
+            base.update(_NO_DISK)
+
+    except OSError as exc:
+        base.update({
+            "mtime":     None,
+            "mtime_str": "\u2014",
+            "age_s":     None,
+            "age_str":   "\u2014",
+            "delay_str": fmt_duration(delay),
+            "stale":     True,
+            "missing":   True,
+            "error":     str(exc),
+        })
+        base.update(_NO_DISK)
+
+    return base
 
 
 # ---------------------------------------------------------------------------
 # Poller thread
 # ---------------------------------------------------------------------------
 def _do_poll() -> None:
-    """Stat every watched path once and update file_states."""
-    now = time.time()
-    new_states = []
-    for entry in WATCH_ENTRIES:
-        path  = entry["path"]
-        delay = entry["delay"]
-        label = entry.get("label") or path
-        kind  = entry.get("kind", "file")
-        try:
-            mtime = os.path.getmtime(path)
-            age_s = now - mtime
+    """Stat every watched path concurrently and update file_states."""
+    if not WATCH_ENTRIES:
+        return
+    now     = time.time()
+    n       = len(WATCH_ENTRIES)
+    results = [None] * n
 
-            # Disk-space metrics (directories only)
-            if kind == "directory":
-                try:
-                    usage = shutil.disk_usage(path)
-                    disk_total     = usage.total
-                    disk_used      = usage.used
-                    disk_free      = usage.free
-                    disk_pct       = round(usage.used / usage.total * 100, 1) if usage.total else 0.0
-                    disk_total_str = fmt_bytes(usage.total)
-                    disk_free_str  = fmt_bytes(usage.free)
-                except OSError:
-                    disk_total = disk_used = disk_free = disk_pct = None
-                    disk_total_str = disk_free_str = None
-            else:
-                disk_total = disk_used = disk_free = disk_pct = None
-                disk_total_str = disk_free_str = None
+    with ThreadPoolExecutor(max_workers=min(n, 20)) as pool:
+        future_map = {
+            pool.submit(_poll_entry, entry, now): i
+            for i, entry in enumerate(WATCH_ENTRIES)
+        }
+        for fut in as_completed(future_map):
+            results[future_map[fut]] = fut.result()
 
-            new_states.append({
-                "path":           path,
-                "label":          label,
-                "delay":          delay,
-                "kind":           kind,
-                "mtime":          mtime,
-                "mtime_str":      datetime.fromtimestamp(
-                                      mtime, tz=timezone.utc
-                                  ).strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "age_s":          age_s,
-                "age_str":        fmt_duration(age_s),
-                "delay_str":      fmt_duration(delay),
-                "stale":          age_s > delay,
-                "missing":        False,
-                "error":          None,
-                "disk_total":     disk_total,
-                "disk_used":      disk_used,
-                "disk_free":      disk_free,
-                "disk_pct":       disk_pct,
-                "disk_total_str": disk_total_str,
-                "disk_free_str":  disk_free_str,
-            })
-        except OSError as exc:
-            new_states.append({
-                "path":           path,
-                "label":          label,
-                "delay":          delay,
-                "kind":           kind,
-                "mtime":          None,
-                "mtime_str":      "\u2014",
-                "age_s":          None,
-                "age_str":        "\u2014",
-                "delay_str":      fmt_duration(delay),
-                "stale":          True,   # missing files are also considered stale
-                "missing":        True,
-                "error":          str(exc),
-                "disk_total":     None,
-                "disk_used":      None,
-                "disk_free":      None,
-                "disk_pct":       None,
-                "disk_total_str": None,
-                "disk_free_str":  None,
-            })
     with state_lock:
         file_states.clear()
-        file_states.extend(new_states)
+        file_states.extend(results)
 
 
 def poll_loop() -> None:
@@ -551,12 +672,16 @@ function buildRows(entries) {
       html += '<td><span class="badge badge-ok">ok</span></td>';
     }
 
-    // Label / Path
+    // Label / Path (with optional SSH indicator)
+    const sshBadge = f.remote
+      ? ' <span class="badge bg-secondary ms-1" title="Remote via SSH: ' + escHtml(f.ssh_host) + '">' +
+        '<i class="bi bi-hdd-network"></i> ' + escHtml(f.ssh_host) + '</span>'
+      : '';
     if (f.label && f.label !== f.path) {
-      html += '<td><strong>' + escHtml(f.label) + '</strong><br>' +
+      html += '<td><strong>' + escHtml(f.label) + '</strong>' + sshBadge + '<br>' +
               '<span class="path-cell text-muted">' + escHtml(f.path) + '</span></td>';
     } else {
-      html += '<td><span class="path-cell">' + escHtml(f.path) + '</span></td>';
+      html += '<td><span class="path-cell">' + escHtml(f.path) + '</span>' + sshBadge + '</td>';
     }
 
     // Last modified & age
@@ -920,13 +1045,14 @@ def _build_config_page() -> str:
 
     def watch_rows(entries, noun):
         if not entries:
-            return (f'<tr><td colspan="2" class="text-muted p-3">'
+            return (f'<tr><td colspan="3" class="text-muted p-3">'
                     f'No {noun} configured.</td></tr>')
         rows = ""
         for e in entries:
-            label = e.get("label", "")
-            path  = e["path"]
-            delay = e["delay"]
+            label    = e.get("label", "")
+            path     = e["path"]
+            delay    = e["delay"]
+            ssh_cfg  = e.get("ssh")
             ep = _html.escape(path)
             el = _html.escape(label)
             if label and label != path:
@@ -934,11 +1060,18 @@ def _build_config_page() -> str:
                              f'<span class="path-cell text-muted">{ep}</span>')
             else:
                 name_cell = f'<span class="path-cell">{ep}</span>'
+            if ssh_cfg:
+                host = _html.escape(str(ssh_cfg.get("host", "")))
+                conn_cell = (f'<span class="badge bg-secondary">'
+                             f'<i class="bi bi-hdd-network"></i> {host}</span>')
+            else:
+                conn_cell = '<span class="text-muted small">local</span>'
             rows += (
                 f'<tr>'
                 f'<td class="ps-3">{name_cell}</td>'
                 f'<td class="text-nowrap">{fmt_duration(delay)}'
                 f' <small class="text-muted">({delay}&nbsp;s)</small></td>'
+                f'<td>{conn_cell}</td>'
                 f'</tr>'
             )
         return rows
@@ -1014,7 +1147,7 @@ function copyYaml() {
   <div class="card-body p-0">
     <table class="table table-sm mb-0">
       <thead class="table-light">
-        <tr><th class="ps-3">Label / Path</th><th>Threshold</th></tr>
+        <tr><th class="ps-3">Label / Path</th><th>Threshold</th><th>Connection</th></tr>
       </thead>
       <tbody>{files_rows}</tbody>
     </table>
@@ -1029,7 +1162,7 @@ function copyYaml() {
   <div class="card-body p-0">
     <table class="table table-sm mb-0">
       <thead class="table-light">
-        <tr><th class="ps-3">Label / Path</th><th>Threshold</th></tr>
+        <tr><th class="ps-3">Label / Path</th><th>Threshold</th><th>Connection</th></tr>
       </thead>
       <tbody>{dirs_rows}</tbody>
     </table>

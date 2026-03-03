@@ -19,6 +19,15 @@ configuration file.
 A background thread periodically calls
 .BR os.path.getmtime (2)
 on each configured path.
+Entries may optionally specify an
+.B ssh
+block to check paths on remote hosts; in that case the mtime is obtained by
+running
+.BR stat (1)
+on the remote machine via
+.BR ssh (1).
+All entries are polled concurrently using a thread pool so that SSH timeouts
+do not block the local checks.
 If the time elapsed since the last modification exceeds the staleness
 threshold specified for that path, the entry is flagged as
 .IR stale .
@@ -206,6 +215,41 @@ Default:
 .B label
 Human-readable name shown in the dashboard instead of the raw path.
 Optional; defaults to the path itself.
+.TP
+.B ssh
+Optional mapping that enables checking the file or directory on a remote
+host via SSH instead of the local filesystem.
+Sub-keys:
+.RS
+.TP
+.B host
+.RI ( required\ inside\ ssh: )
+Hostname or IP address of the remote machine.
+.TP
+.B port
+SSH port number.
+Default:
+.BR 22 .
+.TP
+.B key
+Path to the private key file to authenticate with.
+If omitted, the SSH agent or the default key
+.RI ( ~/.ssh/id_rsa )
+is used.
+.TP
+.B timeout
+Connection and command timeout in seconds.
+Default:
+.BR 10 .
+.TP
+.B options
+YAML sequence of extra
+.B -o Key=Value
+options passed to
+.BR ssh (1).
+Example:
+.BR "- StrictHostKeyChecking=no" .
+.RE
 .SS paths
 A YAML sequence of directory entries with the same keys as
 .BR files .
@@ -232,6 +276,16 @@ files:
     label: "Run 001 data"
   - path:  /var/log/artdaq.log
     delay: 60
+  - path:  /data/mu2e/remote_run.dat
+    delay: 120
+    label: "Remote run data"
+    ssh:
+      host:    daq-node01.example.com
+      port:    22
+      key:     ~/.ssh/id_ed25519
+      timeout: 10
+      options:
+        - StrictHostKeyChecking=no
 
 paths:
   - path:  /data/mu2e

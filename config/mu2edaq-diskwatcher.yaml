@@ -29,6 +29,19 @@ files:
     delay: 600          # flag as stale if not written within 10 minutes
     label: "Example Important data file"
 
+  # Remote file accessed via SSH.  The "ssh" block is optional; omit it for
+  # local paths.  All ssh sub-keys except "host" are optional.
+  #- path:  /data/mu2e/run_latest.dat
+  #  delay: 120
+  #  label: "Latest run data (remote)"
+  #  ssh:
+  #    host:    daq-node01.example.com   # required — remote hostname or IP
+  #    port:    22                        # SSH port (default: 22)
+  #    key:     ~/.ssh/id_ed25519        # private key file (default: SSH agent / ~/.ssh/id_rsa)
+  #    timeout: 10                        # connection+command timeout in seconds (default: 10)
+  #    options:                           # extra ssh -o Key=Value pairs
+  #      - StrictHostKeyChecking=no
+
 
 # Directories to watch.
 # The mtime of a directory changes when files are added or removed.
@@ -38,6 +51,15 @@ paths:
   - path:  /tmp
     delay: 600          # flag as stale if the directory has not changed in 10 minutes
     label: "Temp directory"
-  - path: /data         # Should be a missing dir
+  - path: /Users/anorman/data         # Should be a missing dir
     delay: 300          # flag as stale if the directory has not changed in 1 hour
     label: "Main Data directory"
+
+  # Remote directory accessed via SSH.
+  #- path:  /data/mu2e
+  #  delay: 600
+  #  label: "Remote data directory"
+  #  ssh:
+  #    host:    daq-node01.example.com
+  #    key:     ~/.ssh/id_ed25519
+  #    timeout: 15
