@@ -547,7 +547,9 @@ WATCHER_HTML = r"""<!doctype html>
         <table class="table table-sm table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>Status</th>
+              <th class="sort-th" onclick="toggleSort('files','status')">
+                Status <span id="sort-files-status"></span>
+              </th>
               <th class="sort-th" onclick="toggleSort('files','name')">
                 Label / Path <span id="sort-files-name"></span>
               </th>
@@ -579,7 +581,9 @@ WATCHER_HTML = r"""<!doctype html>
         <table class="table table-sm table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>Status</th>
+              <th class="sort-th" onclick="toggleSort('dirs','status')">
+                Status <span id="sort-dirs-status"></span>
+              </th>
               <th class="sort-th" onclick="toggleSort('dirs','name')">
                 Label / Path <span id="sort-dirs-name"></span>
               </th>
@@ -624,7 +628,7 @@ const SORT_ICON = {
 
 function updateSortIndicators(section) {
   const s = sortState[section];
-  for (const col of ['name', 'mtime']) {
+  for (const col of ['status', 'name', 'mtime']) {
     const el = document.getElementById('sort-' + section + '-' + col);
     if (el) el.innerHTML = (s.col === col)
       ? (s.dir > 0 ? SORT_ICON.asc : SORT_ICON.desc)
@@ -632,8 +636,20 @@ function updateSortIndicators(section) {
   }
 }
 
+function statusRank(f) {
+  if (f.missing) return 2;
+  if (f.stale)   return 1;
+  return 0;
+}
+
 function sortEntries(entries, col, dir) {
   return [...entries].sort((a, b) => {
+    if (col === 'status') {
+      const diff = statusRank(a) - statusRank(b);
+      if (diff !== 0) return dir * diff;
+      // secondary: name ascending
+      return (a.label || a.path).localeCompare(b.label || b.path);
+    }
     if (col === 'name') {
       const an = a.label || a.path;
       const bn = b.label || b.path;
