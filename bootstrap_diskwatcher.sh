@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# This script is used to initialize an Dashboard server install directory
+# This script is used to initialize an Diskwatcher server install directory
 # It creates a local Python virtual environment, installs the 
 # required dependencies, and sets up the necessary directory 
-# structure for the Dashboard server to run.
+# structure for the Diskwatcher server to run.
 
 # Create a Python virtual environment in the current directory
 python3 -m venv venv
@@ -11,6 +11,6 @@ python3 -m venv venv
 source venv/bin/activate
 # Install the required dependencies from the requirements.txt file
 pip install -r requirements.txt
-# Create necessary directories for the Dashboard server
+# Create necessary directories for the Diskwatcher server
 mkdir -p data logs config
-echo "Dashboard server environment initialized successfully."
+echo "Diskwatcher server environment initialized successfully."
