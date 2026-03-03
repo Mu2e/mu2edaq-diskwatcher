@@ -204,6 +204,7 @@ def _do_poll() -> None:
                 "age_str":   fmt_duration(age_s),
                 "delay_str": fmt_duration(delay),
                 "stale":     age_s > delay,
+                "missing":   False,
                 "error":     None,
             })
         except OSError as exc:
@@ -216,7 +217,8 @@ def _do_poll() -> None:
                 "age_s":     None,
                 "age_str":   "\u2014",
                 "delay_str": fmt_duration(delay),
-                "stale":     True,   # treat inaccessible path as stale
+                "stale":     True,   # missing files are also considered stale
+                "missing":   True,
                 "error":     str(exc),
             })
     with state_lock:
@@ -275,9 +277,10 @@ WATCHER_HTML = r"""<!doctype html>
     .stat-card.ok-card    { border-color: #198754; }
     .stat-card.stale-card { border-color: #dc3545; }
     .stat-card.total-card { border-color: #0d6efd; }
-    .badge-ok    { background-color: #198754 !important; color: #fff !important; }
-    .badge-stale { background-color: #dc3545 !important; color: #fff !important; }
-    .badge-error { background-color: #6c757d !important; color: #fff !important; }
+    .badge-ok      { background-color: #198754 !important; color: #fff !important; }
+    .badge-stale   { background-color: #dc3545 !important; color: #fff !important; }
+    .badge-missing { background-color: #fd7e14 !important; color: #fff !important; }
+    tr.row-missing td { background-color: rgba(253, 126, 20, 0.15) !important; }
     .path-cell   { font-family: monospace; font-size: 0.85em; word-break: break-all; }
     .count-table td, .count-table th { vertical-align: middle; }
   </style>
@@ -397,7 +400,9 @@ function renderTable(data) {
   html += '</tr></thead><tbody>';
 
   for (const f of data.files) {
-    const rowClass = f.stale ? ' class="table-danger"' : '';
+    let rowClass = '';
+    if (f.missing)     rowClass = ' class="row-missing"';
+    else if (f.stale)  rowClass = ' class="table-danger"';
     html += '<tr' + rowClass + '>';
 
     // Label / Path column
@@ -408,11 +413,10 @@ function renderTable(data) {
       html += '<td><span class="path-cell">' + escHtml(f.path) + '</span></td>';
     }
 
-    // Last modified & age (merged on error)
-    if (f.error) {
-      html += '<td colspan="2" class="text-danger small">' +
-              '<i class="bi bi-exclamation-triangle-fill me-1"></i>' +
-              escHtml(f.error) + '</td>';
+    // Last modified & age (merged on missing)
+    if (f.missing) {
+      html += '<td colspan="2" class="small" style="color:#fd7e14">' +
+              '<i class="bi bi-question-circle-fill me-1"></i>not found</td>';
     } else {
       html += '<td class="small text-muted text-nowrap">' + escHtml(f.mtime_str) + '</td>';
       html += '<td class="text-nowrap">' + escHtml(f.age_str) + '</td>';
@@ -422,8 +426,8 @@ function renderTable(data) {
     html += '<td class="text-muted small text-nowrap">' + escHtml(f.delay_str) + '</td>';
 
     // Status badge
-    if (f.error) {
-      html += '<td><span class="badge badge-error">error</span></td>';
+    if (f.missing) {
+      html += '<td><span class="badge badge-missing">missing</span></td>';
     } else if (f.stale) {
       html += '<td><span class="badge badge-stale">stale</span></td>';
     } else {
