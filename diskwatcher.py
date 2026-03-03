@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import atexit
+import html as _html
 import importlib.metadata
 import os
 import platform
@@ -301,6 +302,7 @@ WATCHER_HTML = r"""<!doctype html>
     <div class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link active" href="/">Watcher</a></li>
+        <li class="nav-item"><a class="nav-link" href="/config">Config</a></li>
         <li class="nav-item"><a class="nav-link" href="/about">About</a></li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-3">
@@ -690,6 +692,7 @@ def _build_about_page() -> str:
     <div class="collapse navbar-collapse">
       <ul class="navbar-nav">
         <li class="nav-item"><a class="nav-link" href="/">Watcher</a></li>
+        <li class="nav-item"><a class="nav-link" href="/config">Config</a></li>
         <li class="nav-item"><a class="nav-link active" href="/about">About</a></li>
       </ul>
     </div>
@@ -822,6 +825,197 @@ def _build_about_page() -> str:
 @app.route("/about")
 def about():
     return _build_about_page()
+
+
+# ---------------------------------------------------------------------------
+# HTML – Config page (dynamically built from WATCH_ENTRIES and globals)
+# ---------------------------------------------------------------------------
+def _build_config_page() -> str:
+    files_entries = [e for e in WATCH_ENTRIES if e.get("kind") == "file"]
+    dirs_entries  = [e for e in WATCH_ENTRIES if e.get("kind") == "directory"]
+
+    cfg_display = CONFIG_PATH if CONFIG_PATH else "(defaults — no config file loaded)"
+
+    # Try to read the raw YAML so the user can inspect exactly what was parsed.
+    raw_yaml = None
+    if CONFIG_PATH:
+        try:
+            with open(CONFIG_PATH) as fh:
+                raw_yaml = fh.read()
+        except OSError as exc:
+            raw_yaml = f"# Could not read {CONFIG_PATH}: {exc}"
+
+    daemon_badge = (
+        '<span class="badge bg-success">enabled</span>' if DAEMON
+        else '<span class="badge bg-secondary">disabled</span>'
+    )
+    pid_val = (f'<code class="small">{_html.escape(PID_FILE)}</code>'
+               if PID_FILE else '<span class="text-muted">(none)</span>')
+    log_val = (f'<code class="small">{_html.escape(LOG_FILE)}</code>'
+               if LOG_FILE else '<span class="text-muted">(none)</span>')
+
+    def watch_rows(entries, noun):
+        if not entries:
+            return (f'<tr><td colspan="2" class="text-muted p-3">'
+                    f'No {noun} configured.</td></tr>')
+        rows = ""
+        for e in entries:
+            label = e.get("label", "")
+            path  = e["path"]
+            delay = e["delay"]
+            ep = _html.escape(path)
+            el = _html.escape(label)
+            if label and label != path:
+                name_cell = (f'<strong>{el}</strong><br>'
+                             f'<span class="path-cell text-muted">{ep}</span>')
+            else:
+                name_cell = f'<span class="path-cell">{ep}</span>'
+            rows += (
+                f'<tr>'
+                f'<td class="ps-3">{name_cell}</td>'
+                f'<td class="text-nowrap">{fmt_duration(delay)}'
+                f' <small class="text-muted">({delay}&nbsp;s)</small></td>'
+                f'</tr>'
+            )
+        return rows
+
+    files_rows = watch_rows(files_entries, "files")
+    dirs_rows  = watch_rows(dirs_entries,  "directories")
+
+    raw_section = ""
+    copy_js     = ""
+    if raw_yaml is not None:
+        raw_section = f"""
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-file-code"></i> Raw Configuration
+      <small class="text-muted ms-2">{_html.escape(cfg_display)}</small>
+    </span>
+    <button class="btn btn-sm btn-outline-secondary" id="copy-btn" onclick="copyYaml()">
+      <i class="bi bi-clipboard"></i> Copy
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <pre id="yaml-pre" class="mb-0 p-3"
+         style="background:#f8f9fa;border-radius:0 0 .375rem .375rem;
+                font-size:.85em;overflow-x:auto">{_html.escape(raw_yaml)}</pre>
+  </div>
+</div>"""
+        copy_js = """
+<script>
+function copyYaml() {
+  const text = document.getElementById('yaml-pre').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.innerHTML = '<i class="bi bi-clipboard-check"></i> Copied!';
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy';
+    }, 2000);
+  }).catch(() => {
+    const el = document.getElementById('yaml-pre');
+    const r  = document.createRange();
+    r.selectNodeContents(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  });
+}
+</script>"""
+
+    body = f"""
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-gear"></i> Server Settings</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        <tr><th class="ps-3" style="width:30%">Config file</th>
+            <td><code class="small">{_html.escape(cfg_display)}</code></td></tr>
+        <tr><th class="ps-3">Web bind address</th>
+            <td><code>{_html.escape(WEB_HOST)}:{WEB_PORT}</code></td></tr>
+        <tr><th class="ps-3">Poll interval</th>
+            <td>{fmt_duration(POLL_INTERVAL)}
+              <small class="text-muted">({POLL_INTERVAL}&nbsp;s)</small></td></tr>
+        <tr><th class="ps-3">Daemon mode</th><td>{daemon_badge}</td></tr>
+        <tr><th class="ps-3">PID file</th><td>{pid_val}</td></tr>
+        <tr><th class="ps-3">Log file</th><td>{log_val}</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-file-earmark-text"></i> Watched Files
+    <small class="text-muted ms-2">{len(files_entries)} configured</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th class="ps-3">Label / Path</th><th>Threshold</th></tr>
+      </thead>
+      <tbody>{files_rows}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-folder2-open"></i> Watched Directories
+    <small class="text-muted ms-2">{len(dirs_entries)} configured</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th class="ps-3">Label / Path</th><th>Threshold</th></tr>
+      </thead>
+      <tbody>{dirs_rows}</tbody>
+    </table>
+  </div>
+</div>
+{raw_section}"""
+
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Config &mdash; mu2edaq Disk Watcher</title>
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    crossorigin="anonymous">
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    body {{ background: #f8f9fa; }}
+    .navbar-brand {{ font-weight: 700; letter-spacing: .05em; }}
+    .path-cell {{ font-family: monospace; font-size: 0.85em; word-break: break-all; }}
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/"><i class="bi bi-hdd-stack"></i> mu2edaq Disk Watcher</a>
+    <div class="collapse navbar-collapse">
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="/">Watcher</a></li>
+        <li class="nav-item"><a class="nav-link active" href="/config">Config</a></li>
+        <li class="nav-item"><a class="nav-link" href="/about">About</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+<div class="container-fluid px-4">
+{body}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+  crossorigin="anonymous"></script>{copy_js}
+</body>
+</html>"""
+    return page
+
+
+@app.route("/config")
+def config():
+    return _build_config_page()
 
 
 # ---------------------------------------------------------------------------
