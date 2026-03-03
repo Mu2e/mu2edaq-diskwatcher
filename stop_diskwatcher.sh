@@ -9,7 +9,7 @@
 # We start with a kill and then do a kill -9 if the process does not terminate within a reasonable time frame.
 
 # Take the name of the PID file as an argument, defaulting to the diskwatcher.pid if not provided
-PID_FILE="${1:-./diskwatcher.pid}"
+PID_FILE="${1:-./config/mu2edaq-diskwatcher.pid}"
 
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")

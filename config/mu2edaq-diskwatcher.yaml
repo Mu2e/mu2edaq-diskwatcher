@@ -9,23 +9,23 @@ watcher:
   web_port:      5002         # HTTP port for the dashboard
   poll_interval: 30           # Seconds between mtime checks
   daemon:        false        # Set to true to run as a background daemon (POSIX only)
-  pid_file:      "/tmp/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
-  log_file:      "/tmp/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
+  pid_file:      "./config/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
+  log_file:      "./config/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
 
 # Individual files to watch.
 # Each entry requires a "path" (absolute or relative) and a "delay"
 # (staleness threshold in seconds).  An optional "label" is shown in the
 # dashboard instead of the raw path.
 files:
-  - path:  /tmp/diskwatcher-example.txt
-    delay: 300          # flag as stale if not written within 5 minutes
+  - path:  /tmp/diskwatcher-example.txt  # Example stale file
+    delay: 60          # flag as stale if not written within 1 minutes
     label: "Example file (tmp)"
 
-  - path:  /var/log/system.log
+  - path:  /var/log/system.log  # Example updating file
     delay: 3600         # flag as stale if not written within 1 hour
     label: "System log"
 
-  - path:  /mu2edaq/mydata.dat
+  - path:  /mu2edaq/mydata.dat  # Example of missing file
     delay: 600          # flag as stale if not written within 10 minutes
     label: "Example Important data file"
 
@@ -38,6 +38,6 @@ paths:
   - path:  /tmp
     delay: 600          # flag as stale if the directory has not changed in 10 minutes
     label: "Temp directory"
-  - path: /data
+  - path: /data         # Should be a missing dir
     delay: 300          # flag as stale if the directory has not changed in 1 hour
     label: "Main Data directory"

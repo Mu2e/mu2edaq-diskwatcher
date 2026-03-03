@@ -4,7 +4,7 @@ source ./venv/bin/activate
 export PYTHONPATH=./src:$PYTHONPATH
 
 # Use a configuration file for the Diskwatcher, defaulting to diskwatcher.yaml if not provided
-CONFIG_FILE="${1:-./config/diskwatcher.yaml}"
+CONFIG_FILE="${1:-./config/mu2edaq-diskwatcher.yaml}"
 echo "Starting DAQ Diskwatcher with configuration: $CONFIG_FILE" 
 
 # Start the Diskwatcher
