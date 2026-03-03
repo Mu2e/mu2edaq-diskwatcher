@@ -25,9 +25,15 @@ files:
     delay: 3600         # flag as stale if not written within 1 hour
     label: "System log"
 
-  - path:  /mu2edaq/mydata.dat  # Example of missing file
+  - path:  /home/mu2edaq/myfile.txt  # Example of remote file
     delay: 600          # flag as stale if not written within 10 minutes
-    label: "Example Important data file"
+    label: "Example Remote File"
+    ssh:
+      host: mu2edaq@mu2edaq13.fnal.gov
+
+  - path:  /Users/anorman/data/latest.dat  # Example of local file
+    delay: 300          # flag as stale if not written within 5 minutes
+    label: "Latest data (local)"
 
   # Remote file accessed via SSH.  The "ssh" block is optional; omit it for
   # local paths.  All ssh sub-keys except "host" are optional.
@@ -49,17 +55,17 @@ files:
 # individually in the "files" section above.
 paths:
   - path:  /tmp
-    delay: 600          # flag as stale if the directory has not changed in 10 minutes
+    delay: 600                        # flag as stale if the directory has not changed in 10 minutes
     label: "Temp directory"
   - path: /Users/anorman/data         # Should be a missing dir
-    delay: 300          # flag as stale if the directory has not changed in 1 hour
+    delay: 300                        # flag as stale if the directory has not changed in 1 hour
     label: "Main Data directory"
 
   # Remote directory accessed via SSH.
-  #- path:  /data/mu2e
-  #  delay: 600
-  #  label: "Remote data directory"
-  #  ssh:
-  #    host:    daq-node01.example.com
+  - path:  /home
+    delay: 600
+    label: "Home on DAQ13"
+    ssh:
+      host:    mu2edaq@mu2edaq13.fnal.gov
   #    key:     ~/.ssh/id_ed25519
   #    timeout: 15

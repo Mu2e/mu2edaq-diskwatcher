@@ -272,6 +272,7 @@ def _remote_disk_usage(path: str, ssh_cfg: dict) -> tuple:
             msg = result.stderr.strip() or f"disk_usage exited {result.returncode}"
             return None, None, None, msg
         total, used, free = map(int, result.stdout.strip().split())
+        print(f"[SSH] disk usage for {ssh_cfg['host']}:{path} - total={total}, used={used}, free={free}")
         return total, used, free, None
     except subprocess.TimeoutExpired:
         return None, None, None, f"SSH timed out after {timeout} s"
