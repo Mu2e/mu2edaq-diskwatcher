@@ -164,6 +164,7 @@ def entries_from_config(cfg: dict) -> list:
     """
     entries = []
     for section in ("files", "paths"):
+        kind = "file" if section == "files" else "directory"
         for item in cfg.get(section, []):
             if isinstance(item, dict):
                 path  = item.get("path", "")
@@ -174,7 +175,7 @@ def entries_from_config(cfg: dict) -> list:
                 delay = 300
                 label = path
             if path:
-                entries.append({"path": path, "delay": delay, "label": label})
+                entries.append({"path": path, "delay": delay, "label": label, "kind": kind})
     return entries
 
 
@@ -189,6 +190,7 @@ def _do_poll() -> None:
         path  = entry["path"]
         delay = entry["delay"]
         label = entry.get("label") or path
+        kind  = entry.get("kind", "file")
         try:
             mtime = os.path.getmtime(path)
             age_s = now - mtime
@@ -196,6 +198,7 @@ def _do_poll() -> None:
                 "path":      path,
                 "label":     label,
                 "delay":     delay,
+                "kind":      kind,
                 "mtime":     mtime,
                 "mtime_str": datetime.fromtimestamp(
                     mtime, tz=timezone.utc
@@ -212,6 +215,7 @@ def _do_poll() -> None:
                 "path":      path,
                 "label":     label,
                 "delay":     delay,
+                "kind":      kind,
                 "mtime":     None,
                 "mtime_str": "\u2014",
                 "age_s":     None,
@@ -273,16 +277,18 @@ WATCHER_HTML = r"""<!doctype html>
   <style>
     body { background: #f8f9fa; }
     .navbar-brand { font-weight: 700; letter-spacing: .05em; }
-    .stat-card            { border-left: 4px solid; }
-    .stat-card.ok-card    { border-color: #198754; }
-    .stat-card.stale-card { border-color: #dc3545; }
-    .stat-card.total-card { border-color: #0d6efd; }
+    .stat-card                { border-left: 4px solid; }
+    .stat-card.ok-card        { border-color: #198754; }
+    .stat-card.stale-card     { border-color: #dc3545; }
+    .stat-card.missing-card   { border-color: #fd7e14; }
+    .stat-card.total-card     { border-color: #0d6efd; }
     .badge-ok      { background-color: #198754 !important; color: #fff !important; }
     .badge-stale   { background-color: #dc3545 !important; color: #fff !important; }
     .badge-missing { background-color: #fd7e14 !important; color: #fff !important; }
     tr.row-missing td { background-color: rgba(253, 126, 20, 0.15) !important; }
-    .path-cell   { font-family: monospace; font-size: 0.85em; word-break: break-all; }
-    .count-table td, .count-table th { vertical-align: middle; }
+    .path-cell { font-family: monospace; font-size: 0.85em; word-break: break-all; }
+    .sort-th   { cursor: pointer; user-select: none; white-space: nowrap; }
+    .sort-th:hover { background-color: rgba(0,0,0,.04); }
   </style>
 </head>
 <body>
@@ -310,7 +316,7 @@ WATCHER_HTML = r"""<!doctype html>
 
   <!-- Summary stat cards -->
   <div class="row g-3 mb-4">
-    <div class="col-sm-4">
+    <div class="col-sm-3">
       <div class="card stat-card ok-card h-100">
         <div class="card-body">
           <div class="text-muted small">OK</div>
@@ -318,7 +324,7 @@ WATCHER_HTML = r"""<!doctype html>
         </div>
       </div>
     </div>
-    <div class="col-sm-4">
+    <div class="col-sm-3">
       <div class="card stat-card stale-card h-100">
         <div class="card-body">
           <div class="text-muted small">STALE</div>
@@ -326,7 +332,15 @@ WATCHER_HTML = r"""<!doctype html>
         </div>
       </div>
     </div>
-    <div class="col-sm-4">
+    <div class="col-sm-3">
+      <div class="card stat-card missing-card h-100">
+        <div class="card-body">
+          <div class="text-muted small">MISSING</div>
+          <div class="display-6 fw-bold" style="color:#fd7e14" id="stat-missing">&mdash;</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-3">
       <div class="card stat-card total-card h-100">
         <div class="card-body">
           <div class="text-muted small">TOTAL</div>
@@ -336,12 +350,15 @@ WATCHER_HTML = r"""<!doctype html>
     </div>
   </div>
 
-  <!-- File status table -->
+  <!-- Files section -->
   <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="bi bi-table"></i> File Status</span>
+      <span>
+        <i class="bi bi-file-earmark-text"></i> Files
+        <small class="text-muted ms-1" id="files-count"></small>
+      </span>
       <div class="d-flex align-items-center gap-2">
-        <small class="text-muted" id="refresh-label">Auto-refreshes every 10 s</small>
+        <small class="text-muted" id="refresh-label">Auto-refreshes every 5 s</small>
         <select id="refresh-interval" class="form-select form-select-sm" style="width:auto"
                 title="Auto-refresh interval">
           <option value="1000">1 s</option>
@@ -351,7 +368,7 @@ WATCHER_HTML = r"""<!doctype html>
           <option value="30000">30 s</option>
           <option value="60000">60 s</option>
           <option value="120000">2 min</option>
-          <option value="300000">5 min </option>
+          <option value="300000">5 min</option>
           <option value="0">Off</option>
         </select>
         <button class="btn btn-sm btn-outline-secondary" id="refresh-now" title="Refresh now">
@@ -360,8 +377,57 @@ WATCHER_HTML = r"""<!doctype html>
       </div>
     </div>
     <div class="card-body p-0">
-      <div id="table-wrap" class="p-3">
-        <p class="text-muted mb-0">Loading&hellip;</p>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="sort-th" onclick="toggleSort('files','name')">
+                Label / Path <span id="sort-files-name"></span>
+              </th>
+              <th class="sort-th" onclick="toggleSort('files','mtime')">
+                Last Modified <span id="sort-files-mtime"></span>
+              </th>
+              <th>Age</th>
+              <th>Threshold</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-files">
+            <tr><td colspan="5" class="text-muted p-3">Loading&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Directories section -->
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>
+        <i class="bi bi-folder2-open"></i> Directories
+        <small class="text-muted ms-1" id="dirs-count"></small>
+      </span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="sort-th" onclick="toggleSort('dirs','name')">
+                Label / Path <span id="sort-dirs-name"></span>
+              </th>
+              <th class="sort-th" onclick="toggleSort('dirs','mtime')">
+                Last Modified <span id="sort-dirs-mtime"></span>
+              </th>
+              <th>Age</th>
+              <th>Threshold</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-dirs">
+            <tr><td colspan="5" class="text-muted p-3">Loading&hellip;</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -377,35 +443,61 @@ function escHtml(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function renderTable(data) {
-  document.getElementById('stat-ok').textContent    = data.ok;
-  document.getElementById('stat-stale').textContent = data.stale;
-  document.getElementById('stat-total').textContent = data.total;
+// ---- sort state (independent per section) ----
+const sortState = {
+  files: { col: 'name', dir: 1 },
+  dirs:  { col: 'name', dir: 1 },
+};
 
-  const wrap = document.getElementById('table-wrap');
-  if (!data.files || !data.files.length) {
-    wrap.innerHTML = '<p class="text-muted mb-0">No files configured. ' +
-      'Add entries to the YAML config file.</p>';
-    return;
+const SORT_ICON = {
+  none: '<i class="bi bi-arrow-down-up text-muted ms-1 small"></i>',
+  asc:  '<i class="bi bi-arrow-up ms-1 small"></i>',
+  desc: '<i class="bi bi-arrow-down ms-1 small"></i>',
+};
+
+function updateSortIndicators(section) {
+  const s = sortState[section];
+  for (const col of ['name', 'mtime']) {
+    const el = document.getElementById('sort-' + section + '-' + col);
+    if (el) el.innerHTML = (s.col === col)
+      ? (s.dir > 0 ? SORT_ICON.asc : SORT_ICON.desc)
+      : SORT_ICON.none;
   }
+}
 
-  let html = '<div class="table-responsive">';
-  html += '<table class="table table-sm table-hover count-table mb-0">';
-  html += '<thead class="table-light"><tr>';
-  html += '<th>Label / Path</th>';
-  html += '<th class="text-nowrap">Last Modified</th>';
-  html += '<th>Age</th>';
-  html += '<th>Threshold</th>';
-  html += '<th>Status</th>';
-  html += '</tr></thead><tbody>';
+function sortEntries(entries, col, dir) {
+  return [...entries].sort((a, b) => {
+    if (col === 'name') {
+      const an = a.label || a.path;
+      const bn = b.label || b.path;
+      return dir * an.localeCompare(bn);
+    }
+    // mtime: missing entries always sort to the end regardless of direction
+    const sentinel = dir > 0 ? Infinity : -Infinity;
+    const am = a.mtime != null ? a.mtime : sentinel;
+    const bm = b.mtime != null ? b.mtime : sentinel;
+    return dir * (am - bm);
+  });
+}
 
-  for (const f of data.files) {
+function toggleSort(section, col) {
+  const s = sortState[section];
+  s.dir = (s.col === col) ? -s.dir : 1;
+  s.col = col;
+  if (currentData) renderSection(section, currentData);
+}
+
+// ---- row builder (shared by both sections) ----
+function buildRows(entries) {
+  if (!entries.length) return null;
+  let html = '';
+  for (const f of entries) {
     let rowClass = '';
-    if (f.missing)     rowClass = ' class="row-missing"';
-    else if (f.stale)  rowClass = ' class="table-danger"';
+    if (f.missing)    rowClass = ' class="row-missing"';
+    else if (f.stale) rowClass = ' class="table-danger"';
     html += '<tr' + rowClass + '>';
 
-    // Label / Path column
+    // Label / Path
     if (f.label && f.label !== f.path) {
       html += '<td><strong>' + escHtml(f.label) + '</strong><br>' +
               '<span class="path-cell text-muted">' + escHtml(f.path) + '</span></td>';
@@ -413,7 +505,7 @@ function renderTable(data) {
       html += '<td><span class="path-cell">' + escHtml(f.path) + '</span></td>';
     }
 
-    // Last modified & age (merged on missing)
+    // Last modified & age
     if (f.missing) {
       html += '<td colspan="2" class="small" style="color:#fd7e14">' +
               '<i class="bi bi-question-circle-fill me-1"></i>not found</td>';
@@ -436,9 +528,53 @@ function renderTable(data) {
 
     html += '</tr>';
   }
+  return html;
+}
 
-  html += '</tbody></table></div>';
-  wrap.innerHTML = html;
+// ---- per-section render ----
+function renderSection(section, data) {
+  const kind    = section === 'files' ? 'file' : 'directory';
+  const entries = (data.files || []).filter(f => f.kind === kind);
+  const s       = sortState[section];
+  const sorted  = sortEntries(entries, s.col, s.dir);
+
+  const countEl = document.getElementById(section + '-count');
+  if (countEl) countEl.textContent = '(' + entries.length + ')';
+
+  updateSortIndicators(section);
+
+  const tbody = document.getElementById('tbody-' + section);
+  if (!tbody) return;
+
+  const rows = buildRows(sorted);
+  if (rows === null) {
+    const noun = section === 'files' ? 'files' : 'directories';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted p-3">No ' + noun +
+      ' configured. Add entries to the YAML config file.</td></tr>';
+  } else {
+    tbody.innerHTML = rows;
+  }
+}
+
+// ---- stat cards + full render ----
+let currentData = null;
+
+function renderAll(data) {
+  currentData = data;
+  const all       = data.files || [];
+  const n_missing = all.filter(f =>  f.missing).length;
+  const n_stale   = all.filter(f =>  f.stale && !f.missing).length;
+  const n_ok      = all.filter(f => !f.stale).length;
+  document.getElementById('stat-ok').textContent      = n_ok;
+  document.getElementById('stat-stale').textContent   = n_stale;
+  document.getElementById('stat-missing').textContent = n_missing;
+  document.getElementById('stat-total').textContent   = data.total;
+
+  renderSection('files', data);
+  renderSection('dirs',  data);
+
+  const now = new Date().toLocaleTimeString();
+  document.getElementById('last-update').textContent = '\u2713 Updated ' + now;
 }
 
 function refreshData() {
@@ -447,24 +583,22 @@ function refreshData() {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     })
-    .then(data => {
-      renderTable(data);
-      const now = new Date().toLocaleTimeString();
-      document.getElementById('last-update').textContent = '\u2713 Updated ' + now;
-    })
+    .then(renderAll)
     .catch(err => {
       console.error('Failed to fetch status:', err);
       document.getElementById('last-update').textContent = '\u26a0 Fetch failed';
     });
 }
 
+// ---- auto-refresh ----
 let refreshTimer = null;
 function applyRefreshInterval(ms) {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   const label = document.getElementById('refresh-label');
   if (ms > 0) {
     refreshTimer = setInterval(refreshData, ms);
-    label.textContent = 'Auto-refreshes every ' + (ms / 1000) + ' s';
+    label.textContent = 'Auto-refreshes every ' +
+      (ms >= 60000 ? (ms / 60000) + ' min' : (ms / 1000) + ' s');
   } else {
     label.textContent = 'Auto-refresh off';
   }
@@ -475,8 +609,11 @@ document.getElementById('refresh-interval').addEventListener('change', function 
 });
 document.getElementById('refresh-now').addEventListener('click', refreshData);
 
+// initialise sort indicators then fetch
+updateSortIndicators('files');
+updateSortIndicators('dirs');
 refreshData();
-applyRefreshInterval(10000);
+applyRefreshInterval(5000);
 </script>
 </body>
 </html>
@@ -513,7 +650,8 @@ def _build_about_page() -> str:
 
     with state_lock:
         total_files = len(file_states)
-        n_stale     = sum(1 for s in file_states if s["stale"])
+        n_missing   = sum(1 for s in file_states if s.get("missing"))
+        n_stale     = sum(1 for s in file_states if s["stale"] and not s.get("missing"))
 
     cfg_display  = CONFIG_PATH if CONFIG_PATH else "(defaults)"
     poll_display = fmt_duration(POLL_INTERVAL)
@@ -618,6 +756,7 @@ def _build_about_page() -> str:
                 <td>{poll_display} ({POLL_INTERVAL} s)</td></tr>
             <tr><th class="ps-3">Files watched</th><td>{total_files}</td></tr>
             <tr><th class="ps-3">Currently stale</th><td>{n_stale}</td></tr>
+            <tr><th class="ps-3">Currently missing</th><td>{n_missing}</td></tr>
             <tr><th class="ps-3">Run mode</th><td>{daemon_display}</td></tr>
             <tr><th class="ps-3">PID file</th><td>{pid_display}</td></tr>
             <tr><th class="ps-3">Log file</th><td>{log_display}</td></tr>
