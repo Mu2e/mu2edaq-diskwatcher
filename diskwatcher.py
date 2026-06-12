@@ -1297,6 +1297,9 @@ def main():
     )
     args = parser.parse_args()
 
+    # Control room launcher env override (between YAML and CLI in priority)
+    if os.environ.get("CRS_PORT_HTTP"): WEB_PORT = int(os.environ["CRS_PORT_HTTP"])
+
     # CLI flags override YAML (only when actually supplied)
     if args.host          is not None: WEB_HOST      = args.host
     if args.port          is not None: WEB_PORT      = args.port
@@ -1333,6 +1336,14 @@ def main():
     # Start background poller thread
     t = threading.Thread(target=poll_loop, daemon=True)
     t.start()
+
+    # Announce via mu2edaq-discovery (optional dependency).
+    try:
+        from mu2edaq_discovery import Responder
+        Responder(name="Disk Watcher", app="diskwatcher",
+                  port=WEB_PORT, scheme="http").start()
+    except ImportError:
+        print("[Discovery] mu2edaq-discovery not installed; discovery disabled")
 
     # Start Flask (werkzeug development server)
     app.run(host=WEB_HOST, port=WEB_PORT, use_reloader=False,

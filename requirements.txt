@@ -1,2 +1,3 @@
 flask>=3.0
 pyyaml>=6.0
+mu2edaq-discovery @ git+https://github.com/Mu2e/mu2edaq-discovery.git
