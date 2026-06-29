@@ -1,2 +1,4 @@
 flask>=3.0
 pyyaml>=6.0
+# Mu2e DAQ service discovery (stdlib-only; from the sibling submodule).
+mu2edaq-discovery

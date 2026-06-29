@@ -1334,9 +1334,26 @@ def main():
     t = threading.Thread(target=poll_loop, daemon=True)
     t.start()
 
+    # Mu2e DAQ service discovery: advertise the HTTP web port (primary) so the
+    # app appears in mu2edaq-discover scans and the control room browser.
+    # Started just before the web server accepts connections; best-effort so a
+    # missing package never blocks startup.
+    responder = None
+    try:
+        from mu2edaq_discovery import Responder
+        responder = Responder(name="Disk Watcher", app="diskwatcher",
+                              port=WEB_PORT, scheme="http")
+        responder.start()
+    except Exception as exc:
+        print(f"[Discovery] responder not started: {exc}")
+
     # Start Flask (werkzeug development server)
-    app.run(host=WEB_HOST, port=WEB_PORT, use_reloader=False,
-            threaded=True)
+    try:
+        app.run(host=WEB_HOST, port=WEB_PORT, use_reloader=False,
+                threaded=True)
+    finally:
+        if responder is not None:
+            responder.stop()
 
 
 if __name__ == "__main__":
