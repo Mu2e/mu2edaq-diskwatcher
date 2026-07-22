@@ -8,6 +8,9 @@ _install/
 dashboard.log
 messages.db
 
+# Diskwatcher runtime state
+diskwatcher.pid
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
