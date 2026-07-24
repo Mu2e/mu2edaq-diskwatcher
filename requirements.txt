@@ -1,4 +1,13 @@
 flask>=3.0
 pyyaml>=6.0
-# Mu2e DAQ service discovery (stdlib-only; from the sibling submodule).
-mu2edaq-discovery
+# Mu2e DAQ service discovery (stdlib-only) is OPTIONAL and is deliberately NOT
+# listed as a requirement here: it is not published on PyPI, so naming it makes
+# pip abort this entire file and install nothing. The runtime import is
+# best-effort (see the try/except around `from mu2edaq_discovery import
+# Responder`) -- without it the app runs normally, just without advertising
+# itself to mu2edaq-discover / the control room browser.
+#
+# To enable auto-discovery, install it from the sibling checkout or a local
+# wheel (no PyPI, offline-safe):
+#     ../mu2edaq-install-discovery.sh          # from a mu2edaq-main checkout
+#     pip install ../mu2edaq-discovery         # equivalent, needs setuptools>=61
