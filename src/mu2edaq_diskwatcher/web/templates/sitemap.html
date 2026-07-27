@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-diagram-3"></i> Pages</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th class="ps-3" style="width:32%">Page</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="ps-3"><a href="{{ url_for('views.index') }}">/ &mdash; Watcher</a></td>
+                <td class="small">Every watched file and directory, with its
+                  modification time, age and staleness threshold. Live.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.space') }}">/space &mdash; Disk Space</a></td>
+                <td class="small">Directories with a <code>space:</code> block:
+                  free space against the GOOD / WARNING / CRITICAL / FULL
+                  thresholds. Live.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.sizes') }}">/sizes &mdash; File Sizes</a></td>
+                <td class="small">Files with a <code>size:</code> block:
+                  zero-length detection and growth thresholds. Live.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.config') }}">/config &mdash; Config</a></td>
+                <td class="small">Settings in effect, the parsed watch list with
+                  its thresholds, and the raw YAML.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.api_docs') }}">/api &mdash; API</a></td>
+                <td class="small">Every JSON endpoint and the meaning of each
+                  entry field.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.about') }}">/about &mdash; About</a></td>
+                <td class="small">Version, uptime, host and dependency
+                  versions.</td></tr>
+            <tr><td class="ps-3"><a href="{{ url_for('views.sitemap') }}">/sitemap</a></td>
+                <td class="small">This page.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-braces"></i> JSON endpoints</div>
+      <div class="card-body">
+        <ul class="mb-0 small">
+          <li><code><a href="/api/status">/api/status</a></code> — legacy flat list</li>
+          <li><code><a href="/api/state">/api/state</a></code> — everything</li>
+          <li><code><a href="/api/space">/api/space</a></code> — Disk Space feed</li>
+          <li><code><a href="/api/sizes">/api/sizes</a></code> — File Sizes feed</li>
+          <li><code><a href="/api/entries">/api/entries</a></code> — filtered list</li>
+          <li><code><a href="/api/config">/api/config</a></code> — active config</li>
+          <li><code><a href="/api/health">/api/health</a></code> — poller liveness</li>
+          <li><code><a href="/api/version">/api/version</a></code> — version</li>
+        </ul>
+      </div>
+      <div class="card-footer text-muted small">
+        Full field reference on the <a href="{{ url_for('views.api_docs') }}">API page</a>.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

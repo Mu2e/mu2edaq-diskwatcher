@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  {{ m.stat_card('size', 'good',        'GOOD',        'good') }}
+  {{ m.stat_card('size', 'empty',       'EMPTY',       'empty') }}
+  {{ m.stat_card('size', 'warning',     'WARNING',     'warning') }}
+  {{ m.stat_card('size', 'critical',    'CRITICAL',    'critical') }}
+  {{ m.stat_card('size', 'full',        'FULL',        'full') }}
+  {{ m.stat_card('size', 'unavailable', 'UNAVAILABLE', 'unavailable') }}
+  {{ m.stat_card('size', 'total',       'TOTAL',       'total') }}
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <i class="bi bi-file-earmark-bar-graph"></i> File Sizes
+      <small class="text-muted ms-1" id="size-count"></small>
+    </span>
+    {{ m.refresh_controls() }}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            {{ m.sort_th('sizes', 'status', 'Status') }}
+            {{ m.sort_th('sizes', 'name',   'Label / Path') }}
+            {{ m.sort_th('sizes', 'size',   'Size') }}
+            {{ m.sort_th('sizes', 'pct',    'Of Limit') }}
+            <th>Thresholds (file size)</th>
+            {{ m.sort_th('sizes', 'mtime',  'Last Modified') }}
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-sizes">
+          <tr><td colspan="7" class="text-muted p-3">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p class="text-muted small">
+  Thresholds name how large a file may get, so they ascend:
+  <code>warning &lt; critical &lt; full</code>. A zero-length file is
+  <strong>EMPTY</strong> regardless of its thresholds, unless the entry sets
+  <code>allow_empty: true</code>.
+</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+registerTable('sizes', {
+  status: r => r.size_rank,
+  name:   r => r.label || r.path,
+  size:   r => r.size,
+  pct:    r => r.size_pct,
+  mtime:  r => r.mtime,
+}, 'status');
+
+function sizeRows(entries) {
+  if (!entries.length) return null;
+  let html = '';
+  for (const e of entries) {
+    const state = e.size_state || 'UNKNOWN';
+    html += '<tr class="row-' + state.toLowerCase() + '">';
+    html += '<td title="' + escHtml(e.size_reason || '') + '">' + badge(state) + '</td>';
+    html += nameCell(e);
+    html += '<td class="text-nowrap">' + escHtml(e.size_str) + '</td>';
+
+    if (e.size_pct === null || e.size_pct === undefined) {
+      html += '<td class="text-muted small">' + DASH + '</td>';
+    } else {
+      html += progressBar(e.size_pct, BAR_CLASS[state] || 'bg-secondary',
+        e.size_reason || '', 'of ' + escHtml(e.size_pct_ref || 'limit'));
+    }
+
+    html += limitsCell(e.size_limits_str, e.size_limits, true);
+
+    if (e.missing) {
+      html += '<td colspan="2" class="small text-missing-state">' +
+              '<i class="bi bi-question-circle-fill me-1"></i>not found</td>';
+    } else {
+      html += '<td class="small text-muted text-nowrap">' + escHtml(e.mtime_str) + '</td>';
+      html += '<td class="text-nowrap">' + escHtml(e.age_str) + '</td>';
+    }
+    html += '</tr>';
+  }
+  return html;
+}
+
+function renderSizes(data) {
+  renderStatCards('size', data.summary);
+  const entries = data.entries || [];
+  const countEl = document.getElementById('size-count');
+  if (countEl) countEl.textContent = '(' + entries.length + ')';
+  updateSortIndicators('sizes');
+  fillTable('tbody-sizes', sizeRows(sortRows('sizes', entries)), 7,
+    'No files are monitored for size. Add a size: block to an entry under ' +
+    'files: in the YAML config file.');
+}
+
+startDashboard('/api/sizes', renderSizes);
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% macro ep(path, desc) %}
+<tr>
+  <td class="text-nowrap"><code><a href="{{ path }}">{{ path }}</a></code></td>
+  <td class="small">{{ desc }}</td>
+</tr>
+{% endmacro %}
+
+{% block content %}
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-braces"></i> JSON API</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th class="ps-3" style="width:28%">Endpoint</th><th>Returns</th></tr>
+      </thead>
+      <tbody>
+        {{ ep('/api/status', 'All watch entries in the original flat shape. Kept
+              stable for existing consumers — see the compatibility note below.') }}
+        {{ ep('/api/state', 'Everything: all entries plus watch, space and size
+              summaries, the version and poll timing.') }}
+        {{ ep('/api/space', 'Directories that have a space: block, with their
+              free-space state and resolved thresholds. Feeds the Disk Space page.') }}
+        {{ ep('/api/sizes', 'Files that have a size: block, with their size state
+              and resolved thresholds. Feeds the File Sizes page.') }}
+        {{ ep('/api/entries', 'Filtered entry list. Query parameters: kind=file|directory,
+              monitored=space|size, state=GOOD|WARNING|CRITICAL|FULL|EMPTY|MISSING|
+              UNKNOWN|ok|stale|unmonitored.') }}
+        {{ ep('/api/config', 'Active settings, the parsed watch list, and any
+              configuration problems detected at startup.') }}
+        {{ ep('/api/health', 'Poller liveness. status is "degraded" when the last
+              poll is older than three intervals or the config has problems.') }}
+        {{ ep('/api/version', 'Application name and version.') }}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-shield-check"></i> Compatibility of /api/status</div>
+  <div class="card-body">
+    <p>
+      <code>/api/status</code> always returns <code>files</code>,
+      <code>total</code>, <code>stale</code>, <code>ok</code> and
+      <code>poll_interval</code>, and every element of <code>files</code> always
+      carries at least these keys:
+    </p>
+    <p class="small"><code>path, label, delay, kind, remote, ssh_host, mtime,
+      mtime_str, age_s, age_str, delay_str, stale, missing, error, disk_total,
+      disk_used, disk_free, disk_pct, disk_total_str, disk_free_str</code></p>
+    <p class="mb-0">
+      Keys are added, never removed or retyped. The one exception, introduced
+      with free-space and file-size monitoring: <code>delay</code> is
+      <code>null</code> for an entry that opts out of staleness monitoring.
+      Prefer <code>/api/state</code> for new integrations.
+    </p>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-list-columns"></i> Entry fields</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th class="ps-3" style="width:28%">Field</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="ps-3"><code>watch_state</code></td>
+            <td class="small"><code>ok</code>, <code>stale</code>,
+              <code>missing</code>, or <code>unmonitored</code> (no
+              <code>delay:</code> configured).</td></tr>
+        <tr><td class="ps-3"><code>space_state</code></td>
+            <td class="small"><code>GOOD</code>, <code>WARNING</code>,
+              <code>CRITICAL</code>, <code>FULL</code>, <code>MISSING</code>
+              (path unreachable) or <code>UNKNOWN</code> (path exists but the
+              filesystem could not be measured). <code>null</code> when the
+              directory has no <code>space:</code> block.</td></tr>
+        <tr><td class="ps-3"><code>size_state</code></td>
+            <td class="small">As above, plus <code>EMPTY</code> for a zero-length
+              file. <code>null</code> when the file has no <code>size:</code> block.</td></tr>
+        <tr><td class="ps-3"><code>space_rank</code>, <code>size_rank</code>,
+              <code>watch_rank</code></td>
+            <td class="small">Numeric severity, higher is worse. Sort on these
+              rather than re-deriving an ordering from the state names.</td></tr>
+        <tr><td class="ps-3"><code>*_trigger</code></td>
+            <td class="small">Which threshold fired: <code>warning</code>,
+              <code>critical</code>, <code>full</code>, <code>empty</code>, or
+              <code>null</code>.</td></tr>
+        <tr><td class="ps-3"><code>*_reason</code></td>
+            <td class="small">One human sentence explaining the state, e.g.
+              <code>"93.1 GiB free ≤ critical 465.7 GiB"</code>.</td></tr>
+        <tr><td class="ps-3"><code>*_limits</code></td>
+            <td class="small">Thresholds resolved to bytes. Percentages are
+              resolved against the filesystem capacity at poll time.</td></tr>
+        <tr><td class="ps-3"><code>*_limits_str</code></td>
+            <td class="small">Thresholds exactly as written in the YAML.</td></tr>
+        <tr><td class="ps-3"><code>space_limits_ordered</code></td>
+            <td class="small"><code>false</code> when the resolved thresholds do
+              not escalate (warning &gt; critical &gt; full), which makes some
+              alarm states unreachable.</td></tr>
+        <tr><td class="ps-3"><code>disk_pct</code> /
+              <code>disk_free_pct</code></td>
+            <td class="small">Percent of capacity <em>used</em> / percent still
+              <em>free</em>.</td></tr>
+        <tr><td class="ps-3"><code>size_pct</code> /
+              <code>size_pct_ref</code></td>
+            <td class="small">Size as a percentage of the named threshold — the
+              largest one configured for that file.</td></tr>
+        <tr><td class="ps-3"><code>config_errors</code></td>
+            <td class="small">Problems found in this entry's configuration, such
+              as an unparseable threshold.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-terminal"></i> Examples</div>
+  <div class="card-body">
+<pre class="mb-0 small" style="overflow-x:auto"># every disk in a CRITICAL or FULL state
+curl -s localhost:{{ settings_port }}/api/space \
+  | python3 -c 'import json,sys; print([e["path"] for e in json.load(sys.stdin)["entries"]
+                if e["space_state"] in ("CRITICAL","FULL")])'
+
+# every zero-length file
+curl -s "localhost:{{ settings_port }}/api/entries?state=EMPTY"
+
+# is the poller alive?
+curl -s localhost:{{ settings_port }}/api/health | python3 -m json.tool</pre>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-info-circle"></i> About</div>
+      <div class="card-body">
+        <h5>mu2edaq Disk Watcher <small class="text-muted">v{{ app_version }}</small></h5>
+        <p class="mb-2">
+          Monitors files and directories for three independent conditions and
+          raises a distinct alarm state for each:
+        </p>
+        <ul class="mb-0">
+          <li><strong>Staleness</strong> — the path has not been modified within
+              its configured <code>delay</code>.</li>
+          <li><strong>Free space</strong> — a directory's filesystem has fallen
+              below a <code>space:</code> threshold
+              (<a href="{{ url_for('views.space') }}">Disk Space</a>).</li>
+          <li><strong>File size</strong> — a file is zero length or has grown past
+              a <code>size:</code> threshold
+              (<a href="{{ url_for('views.sizes') }}">File Sizes</a>).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-activity"></i> Runtime</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th class="ps-3" style="width:45%">Uptime</th><td>{{ uptime_str }}</td></tr>
+            <tr><th class="ps-3">Host</th><td><code>{{ hostname }}</code></td></tr>
+            <tr><th class="ps-3">Mode</th>
+                <td>{% if settings.daemon %}<span class="badge bg-secondary">daemon</span>
+                      PID&nbsp;{{ pid }}
+                    {% else %}<span class="badge bg-secondary">foreground</span>{% endif %}</td></tr>
+            <tr><th class="ps-3">Config file</th>
+                <td><code class="small">{{ settings.config_path or '(defaults)' }}</code></td></tr>
+            <tr><th class="ps-3">Poll interval</th><td>{{ poll_display }}</td></tr>
+            <tr><th class="ps-3">Watched paths</th><td>{{ total }}</td></tr>
+            <tr><th class="ps-3">Stale / missing</th>
+                <td>{{ n_stale }} stale, {{ n_missing }} missing</td></tr>
+            <tr><th class="ps-3">Free-space monitored</th><td>{{ n_space }}</td></tr>
+            <tr><th class="ps-3">Size monitored</th><td>{{ n_size }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-box-seam"></i> Dependencies</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th class="ps-3" style="width:45%">Python</th><td>{{ py_ver }}</td></tr>
+            <tr><th class="ps-3">Operating system</th><td class="small">{{ os_info }}</td></tr>
+            <tr><th class="ps-3">Flask</th><td>{{ flask_ver }}</td></tr>
+            <tr><th class="ps-3">Jinja2</th><td>{{ jinja_ver }}</td></tr>
+            <tr><th class="ps-3">PyYAML</th><td>{{ yaml_ver }}</td></tr>
+            <tr><th class="ps-3">Bootstrap</th><td>5.3.3 <small class="text-muted">(CDN)</small></td></tr>
+            <tr><th class="ps-3">Bootstrap Icons</th><td>1.11.3 <small class="text-muted">(CDN)</small></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-muted small">
+        Bootstrap is loaded from jsDelivr. On a host with no outbound internet
+        access the pages still work but render unstyled.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header"><i class="bi bi-link-45deg"></i> Elsewhere</div>
+      <div class="card-body">
+        <ul class="mb-0">
+          <li><a href="{{ url_for('views.api_docs') }}">API reference</a> — every
+              JSON endpoint and its response shape</li>
+          <li><a href="{{ url_for('views.sitemap') }}">Sitemap</a> — the structure
+              of this application</li>
+          <li><a href="{{ url_for('views.config') }}">Config</a> — the settings and
+              watch list currently in effect</li>
+          <li><code>man mu2edaq-diskwatcher</code> and
+              <code>man 5 mu2edaq-diskwatcher.conf</code></li>
+        </ul>
+      </div>
+      <div class="card-footer text-muted small">MIT licensed.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

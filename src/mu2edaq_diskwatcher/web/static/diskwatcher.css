@@ -1,0 +1,58 @@
+body { background: #f8f9fa; }
+.navbar-brand { font-weight: 700; letter-spacing: .05em; }
+
+/* ---- summary cards -------------------------------------------------- */
+.stat-card { border-left: 4px solid; }
+
+.stat-card.ok-card          { border-color: #198754; }
+.stat-card.good-card        { border-color: #198754; }
+.stat-card.stale-card       { border-color: #dc3545; }
+.stat-card.warning-card     { border-color: #ffc107; }
+.stat-card.critical-card    { border-color: #dc3545; }
+.stat-card.full-card        { border-color: #842029; }
+.stat-card.empty-card       { border-color: #6c757d; }
+.stat-card.missing-card     { border-color: #fd7e14; }
+.stat-card.unavailable-card { border-color: #fd7e14; }
+.stat-card.unknown-card     { border-color: #adb5bd; }
+.stat-card.unmonitored-card { border-color: #adb5bd; }
+.stat-card.total-card       { border-color: #0d6efd; }
+
+.text-ok-state          { color: #198754; }
+.text-good-state        { color: #198754; }
+.text-stale-state       { color: #dc3545; }
+.text-warning-state     { color: #b58100; }
+.text-critical-state    { color: #dc3545; }
+.text-full-state        { color: #842029; }
+.text-empty-state       { color: #6c757d; }
+.text-missing-state     { color: #fd7e14; }
+.text-unavailable-state { color: #fd7e14; }
+.text-unknown-state     { color: #adb5bd; }
+.text-unmonitored-state { color: #adb5bd; }
+.text-total-state       { color: #0d6efd; }
+
+/* ---- status badges --------------------------------------------------- */
+.badge-ok,
+.badge-good     { background-color: #198754 !important; color: #fff !important; }
+.badge-stale,
+.badge-critical { background-color: #dc3545 !important; color: #fff !important; }
+.badge-warning  { background-color: #ffc107 !important; color: #000 !important; }
+.badge-full     { background-color: #842029 !important; color: #fff !important; }
+.badge-empty    { background-color: #6c757d !important; color: #fff !important; }
+.badge-missing  { background-color: #fd7e14 !important; color: #fff !important; }
+.badge-unknown,
+.badge-unmonitored { background-color: #adb5bd !important; color: #000 !important; }
+
+/* ---- table rows ------------------------------------------------------ */
+tr.row-missing td  { background-color: rgba(253, 126, 20, 0.15) !important; }
+tr.row-stale td,
+tr.row-critical td { background-color: rgba(220, 53, 69, 0.12) !important; }
+tr.row-full td     { background-color: rgba(132, 32, 41, 0.16) !important; }
+tr.row-warning td  { background-color: rgba(255, 193, 7, 0.16) !important; }
+tr.row-empty td    { background-color: rgba(108, 117, 125, 0.12) !important; }
+
+/* ---- misc ------------------------------------------------------------ */
+.path-cell { font-family: monospace; font-size: 0.85em; word-break: break-all; }
+.sort-th   { cursor: pointer; user-select: none; white-space: nowrap; }
+.sort-th:hover { background-color: rgba(0,0,0,.04); }
+.limit-cell { font-size: .8em; white-space: nowrap; }
+.limit-cell .lvl { display: inline-block; min-width: 4.2em; color: #6c757d; }

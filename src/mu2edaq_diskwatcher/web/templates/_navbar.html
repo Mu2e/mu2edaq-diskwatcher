@@ -1,0 +1,29 @@
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('views.index') }}">
+      <i class="bi bi-hdd-stack"></i> mu2edaq Disk Watcher
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#nav-links" aria-controls="nav-links"
+            aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav-links">
+      <ul class="navbar-nav me-auto">
+        {% for endpoint, label, icon in nav_items %}
+        <li class="nav-item">
+          <a class="nav-link{% if request.endpoint == endpoint %} active{% endif %}"
+             href="{{ url_for(endpoint) }}">
+            <i class="bi {{ icon }}"></i> {{ label }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <ul class="navbar-nav ms-auto align-items-center gap-3">
+        <li class="nav-item">
+          <span class="navbar-text small text-secondary" id="last-update"></span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>

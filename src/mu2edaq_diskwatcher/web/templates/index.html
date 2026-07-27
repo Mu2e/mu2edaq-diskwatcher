@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  {{ m.stat_card('watch', 'ok',          'OK',          'ok') }}
+  {{ m.stat_card('watch', 'stale',       'STALE',       'stale') }}
+  {{ m.stat_card('watch', 'missing',     'MISSING',     'missing') }}
+  {{ m.stat_card('watch', 'unmonitored', 'UNMONITORED', 'unmonitored') }}
+  {{ m.stat_card('watch', 'total',       'TOTAL',       'total') }}
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <i class="bi bi-file-earmark-text"></i> Files
+      <small class="text-muted ms-1" id="files-count"></small>
+    </span>
+    {{ m.refresh_controls() }}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            {{ m.sort_th('files', 'status', 'Status') }}
+            {{ m.sort_th('files', 'name',   'Label / Path') }}
+            {{ m.sort_th('files', 'mtime',  'Last Modified') }}
+            <th>Age</th>
+            <th>Threshold</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-files">
+          <tr><td colspan="5" class="text-muted p-3">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-folder2-open"></i> Directories
+    <small class="text-muted ms-1" id="dirs-count"></small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            {{ m.sort_th('dirs', 'status', 'Status') }}
+            {{ m.sort_th('dirs', 'name',   'Label / Path') }}
+            {{ m.sort_th('dirs', 'mtime',  'Last Modified') }}
+            <th>Age</th>
+            <th>Threshold</th>
+            <th>Disk Space</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-dirs">
+          <tr><td colspan="6" class="text-muted p-3">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const WATCH_ACCESSORS = {
+  status: r => r.watch_rank,
+  name:   r => r.label || r.path,
+  mtime:  r => r.mtime,
+};
+registerTable('files', WATCH_ACCESSORS, 'name');
+registerTable('dirs',  WATCH_ACCESSORS, 'name');
+
+function watchRows(entries) {
+  if (!entries.length) return null;
+  let html = '';
+  for (const f of entries) {
+    const state = f.watch_state || 'ok';
+    html += '<tr class="row-' + state + '">';
+    html += '<td>' + badge(state) + '</td>';
+    html += nameCell(f);
+
+    if (f.missing) {
+      html += '<td colspan="2" class="small text-missing-state">' +
+              '<i class="bi bi-question-circle-fill me-1"></i>not found</td>';
+    } else {
+      html += '<td class="small text-muted text-nowrap">' + escHtml(f.mtime_str) + '</td>';
+      html += '<td class="text-nowrap">' + escHtml(f.age_str) + '</td>';
+    }
+
+    html += '<td class="text-muted small text-nowrap">' + escHtml(f.delay_str) + '</td>';
+
+    if (f.kind === 'directory') {
+      if (f.disk_pct !== null && f.disk_pct !== undefined) {
+        // On this page the bar reflects raw fullness; alarm colours live on
+        // the Disk Space page, which knows the configured thresholds.
+        let cls = 'bg-success';
+        if      (f.disk_pct >= 90) cls = 'bg-danger';
+        else if (f.disk_pct >= 75) cls = 'bg-warning';
+        html += progressBar(f.disk_pct, cls, f.disk_pct.toFixed(1) + '% used',
+          escHtml(f.disk_free_str) + ' free of ' + escHtml(f.disk_total_str));
+      } else {
+        html += '<td class="text-muted small">' + DASH + '</td>';
+      }
+    }
+    html += '</tr>';
+  }
+  return html;
+}
+
+function renderWatcher(data) {
+  const all = data.files || [];
+  renderStatCards('watch', {
+    ok:          all.filter(f => f.watch_state === 'ok').length,
+    stale:       all.filter(f => f.watch_state === 'stale').length,
+    missing:     all.filter(f => f.watch_state === 'missing').length,
+    unmonitored: all.filter(f => f.watch_state === 'unmonitored').length,
+    total:       all.length,
+  });
+
+  for (const [table, kind, colspan, noun] of
+       [['files', 'file', 5, 'files'], ['dirs', 'directory', 6, 'directories']]) {
+    const entries = all.filter(f => f.kind === kind);
+    const countEl = document.getElementById(table + '-count');
+    if (countEl) countEl.textContent = '(' + entries.length + ')';
+    updateSortIndicators(table);
+    fillTable('tbody-' + table, watchRows(sortRows(table, entries)), colspan,
+      'No ' + noun + ' configured. Add entries to the YAML config file.');
+  }
+}
+
+startDashboard('/api/status', renderWatcher);
+</script>
+{% endblock %}

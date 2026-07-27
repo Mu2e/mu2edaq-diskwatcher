@@ -1,0 +1,56 @@
+{# Reusable fragments shared by the three dashboards. #}
+
+{# A summary card.  `key` becomes the element id `stat-<prefix>-<key>`, which
+   renderStatCards() in diskwatcher.js fills from the API summary object. #}
+{% macro stat_card(prefix, key, label, cls) %}
+<div class="col-6 col-md-4 col-xl">
+  <div class="card stat-card {{ cls }}-card h-100">
+    <div class="card-body">
+      <div class="text-muted small">{{ label }}</div>
+      <div class="display-6 fw-bold text-{{ cls }}-state"
+           id="stat-{{ prefix }}-{{ key }}">&mdash;</div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{# A sortable table header cell. #}
+{% macro sort_th(table, col, label) %}
+<th class="sort-th" onclick="toggleSort('{{ table }}','{{ col }}')">
+  {{ label }} <span id="sort-{{ table }}-{{ col }}"></span>
+</th>
+{% endmacro %}
+
+{# Auto-refresh interval selector plus a manual refresh button.  The chosen
+   interval is persisted in localStorage so it survives navigating between
+   dashboards. #}
+{% macro refresh_controls() %}
+<div class="d-flex align-items-center gap-2">
+  <small class="text-muted" id="refresh-label">Auto-refreshes every 5 s</small>
+  <select id="refresh-interval" class="form-select form-select-sm" style="width:auto"
+          title="Auto-refresh interval">
+    <option value="1000">1 s</option>
+    <option value="2000">2 s</option>
+    <option value="5000" selected>5 s</option>
+    <option value="10000">10 s</option>
+    <option value="30000">30 s</option>
+    <option value="60000">60 s</option>
+    <option value="120000">2 min</option>
+    <option value="300000">5 min</option>
+    <option value="0">Off</option>
+  </select>
+  <button class="btn btn-sm btn-outline-secondary" id="refresh-now" title="Refresh now">
+    <i class="bi bi-arrow-clockwise"></i>
+  </button>
+</div>
+{% endmacro %}
+
+{# Label / path cell, server-side twin of the one in diskwatcher.js. #}
+{% macro path_cell(entry) %}
+{% if entry.label and entry.label != entry.path %}
+  <strong>{{ entry.label }}</strong><br>
+  <span class="path-cell text-muted">{{ entry.path }}</span>
+{% else %}
+  <span class="path-cell">{{ entry.path }}</span>
+{% endif %}
+{% endmacro %}

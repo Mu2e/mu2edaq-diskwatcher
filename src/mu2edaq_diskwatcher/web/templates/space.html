@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  {{ m.stat_card('space', 'good',        'GOOD',        'good') }}
+  {{ m.stat_card('space', 'warning',     'WARNING',     'warning') }}
+  {{ m.stat_card('space', 'critical',    'CRITICAL',    'critical') }}
+  {{ m.stat_card('space', 'full',        'FULL',        'full') }}
+  {{ m.stat_card('space', 'unavailable', 'UNAVAILABLE', 'unavailable') }}
+  {{ m.stat_card('space', 'total',       'TOTAL',       'total') }}
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <i class="bi bi-pie-chart"></i> Free Space
+      <small class="text-muted ms-1" id="space-count"></small>
+    </span>
+    {{ m.refresh_controls() }}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            {{ m.sort_th('space', 'status', 'Status') }}
+            {{ m.sort_th('space', 'name',   'Label / Path') }}
+            {{ m.sort_th('space', 'used',   'Used') }}
+            {{ m.sort_th('space', 'free',   'Free') }}
+            {{ m.sort_th('space', 'total',  'Capacity') }}
+            <th>Thresholds (free space)</th>
+            {{ m.sort_th('space', 'mtime',  'Last Modified') }}
+          </tr>
+        </thead>
+        <tbody id="tbody-space">
+          <tr><td colspan="7" class="text-muted p-3">Loading&hellip;</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p class="text-muted small">
+  Thresholds name how much space must remain <strong>free</strong>, so they
+  descend: <code>warning &gt; critical &gt; full</code>. A percentage means
+  percent of total capacity still free.
+</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+registerTable('space', {
+  status: r => r.space_rank,
+  name:   r => r.label || r.path,
+  used:   r => r.disk_pct,
+  free:   r => r.disk_free,
+  total:  r => r.disk_total,
+  mtime:  r => r.mtime,
+}, 'status');
+
+function spaceRows(entries) {
+  if (!entries.length) return null;
+  let html = '';
+  for (const e of entries) {
+    const state = e.space_state || 'UNKNOWN';
+    html += '<tr class="row-' + state.toLowerCase() + '">';
+    html += '<td title="' + escHtml(e.space_reason || '') + '">' + badge(state) + '</td>';
+    html += nameCell(e);
+
+    html += progressBar(e.disk_pct, BAR_CLASS[state] || 'bg-secondary',
+      e.space_reason || '', escHtml(e.disk_used_str || DASH) + ' used');
+
+    html += '<td class="text-nowrap">' + escHtml(e.disk_free_str || DASH) +
+            (e.disk_free_pct !== null && e.disk_free_pct !== undefined
+              ? ' <small class="text-muted">(' + e.disk_free_pct.toFixed(1) + '%)</small>'
+              : '') + '</td>';
+    html += '<td class="text-nowrap text-muted">' + escHtml(e.disk_total_str || DASH) + '</td>';
+    html += limitsCell(e.space_limits_str, e.space_limits, e.space_limits_ordered);
+    html += '<td class="small text-muted text-nowrap">' + escHtml(e.mtime_str) + '</td>';
+    html += '</tr>';
+  }
+  return html;
+}
+
+function renderSpace(data) {
+  renderStatCards('space', data.summary);
+  const entries = data.entries || [];
+  const countEl = document.getElementById('space-count');
+  if (countEl) countEl.textContent = '(' + entries.length + ')';
+  updateSortIndicators('space');
+  fillTable('tbody-space', spaceRows(sortRows('space', entries)), 7,
+    'No directories are monitored for free space. Add a space: block to an ' +
+    'entry under paths: in the YAML config file.');
+}
+
+startDashboard('/api/space', renderSpace);
+</script>
+{% endblock %}

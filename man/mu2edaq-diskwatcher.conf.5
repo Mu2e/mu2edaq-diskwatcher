@@ -1,0 +1,461 @@
+.TH MU2EDAQ\-DISKWATCHER.CONF 5 "July 2026" "mu2edaq-diskwatcher 1.2.0" "Mu2e DAQ Utilities"
+.SH NAME
+mu2edaq\-diskwatcher.conf \- configuration file for mu2edaq\-diskwatcher
+.SH SYNOPSIS
+.B ./diskwatcher.yaml
+.br
+.B ./config/mu2edaq\-diskwatcher.yaml
+.SH DESCRIPTION
+.BR mu2edaq\-diskwatcher (1)
+reads a YAML configuration file naming the paths to watch and how to alarm on
+them.
+The file has three top-level keys:
+.BR watcher ", " files " and " paths .
+All three are optional; a file with none of them is valid and simply watches
+nothing.
+.PP
+The file is loaded once at startup.
+Problems found in it are reported as warnings on standard error, shown on the
+.B /config
+page and in
+.BR /api/config ,
+and do not prevent startup: a control-room daemon must keep running on a
+partly bad configuration rather than leaving the experiment unmonitored.
+The only fatal case is a file named explicitly with
+.B \-\-config
+that does not exist at all.
+.PP
+Unrecognised keys are reported rather than silently ignored, so that a typo
+such as
+.B warnign
+does not quietly disable an alarm.
+.SH THE watcher SECTION
+Server settings.
+Every key may be overridden by an environment variable and then by a
+command-line option; see
+.BR mu2edaq\-diskwatcher (1).
+.TP
+.B web_host
+Bind address for the web server.
+Default:
+.BR 0.0.0.0 .
+.TP
+.B web_port
+TCP port for the web server.
+Default:
+.BR 5002 .
+.TP
+.B poll_interval
+Seconds between polls of every watched path.
+Default:
+.BR 30 .
+.TP
+.B default_delay
+Staleness threshold applied to entries that specify neither
+.B delay
+nor a threshold block.
+Default:
+.BR 300 .
+.TP
+.B daemon
+Run in the background.
+Default:
+.BR false .
+.TP
+.B pid_file
+Where the daemon writes its process ID.
+Note that
+.B start\-mu2edaq\-diskwatcher.sh
+passes
+.BR \-\-pid\-file " " ./diskwatcher.pid ,
+which overrides this setting; see
+.BR mu2edaq\-diskwatcher (1).
+.TP
+.B log_file
+Where the daemon's standard output and error are appended.
+.PP
+.nf
+watcher:
+  web_host:      "0.0.0.0"
+  web_port:      5002
+  poll_interval: 30
+  default_delay: 300
+  daemon:        false
+  pid_file:      "./config/mu2edaq-diskwatcher.pid"
+  log_file:      "./config/mu2edaq-diskwatcher.log"
+.fi
+.SH WATCH ENTRIES
+.B files
+and
+.B paths
+are lists of entries.
+Entries under
+.B files
+are treated as regular files; entries under
+.B paths
+are treated as directories.
+.PP
+An entry is normally a mapping.
+A bare string is also accepted and is equivalent to a mapping with only
+.B path
+set.
+.TP
+.B path
+The absolute or relative path to watch.
+Required; an entry without it is dropped with a warning.
+.TP
+.B delay
+Staleness threshold in seconds.
+Optional; see
+.B THE delay KEY
+below.
+.TP
+.B label
+Name shown on the dashboard instead of the raw path.
+Defaults to the path.
+.TP
+.B ssh
+Watch the path on a remote host.
+See
+.BR "THE ssh BLOCK" .
+.TP
+.B space
+Free-space thresholds.
+Valid on
+.B paths
+entries only; on a
+.B files
+entry it is reported and ignored.
+See
+.BR "THE space BLOCK" .
+.TP
+.B size
+File-size thresholds.
+Valid on
+.B files
+entries only; on a
+.B paths
+entry it is reported and ignored.
+See
+.BR "THE size BLOCK" .
+.PP
+A directory's modification time changes when files are added to or removed from
+it, but not when a file inside it is written.
+To detect writes, list the file itself under
+.BR files .
+.SH THE delay KEY
+.B delay
+is optional, and its absence means different things depending on the rest of
+the entry:
+.PP
+.nf
+    delay: N          monitor staleness with a threshold of N seconds
+    delay: null       do not monitor staleness
+    absent, and the entry has a space: or size: block
+                      do not monitor staleness
+    absent, and the entry has neither
+                      use watcher.default_delay
+.fi
+.PP
+The last case preserves the behaviour of versions before 1.2.0, so an existing
+configuration keeps alarming exactly as it did.
+.PP
+An entry that monitors nothing at all \(em no
+.BR delay ,
+no
+.BR space ,
+no
+.B size
+\(em is reported as a warning and merely listed on the dashboard.
+Entries with no staleness threshold are shown as
+.I unmonitored
+on the Watcher page and are excluded from the OK and STALE counts.
+.SH SIZE UNITS
+Thresholds accept a number with an optional unit suffix.
+Suffixes are case-insensitive; a bare number means bytes.
+.PP
+.TS
+tab(|) box;
+lb | lb | lb
+l  | l  | l .
+Suffix|Multiplier|Family
+_
+(none), B|1|bytes
+KB, K|1000|SI
+MB, M|1000^2|SI
+GB, G|1000^3|SI
+TB, T|1000^4|SI
+PB, P|1000^5|SI
+KiB|1024|IEC
+MiB|1024^2|IEC
+GiB|1024^3|IEC
+TiB|1024^4|IEC
+PiB|1024^5|IEC
+N%|percent|space: only
+.TE
+.PP
+So
+.B 500 GiB
+is 536870912000 bytes while
+.B 500 GB
+is 500000000000 bytes.
+The dashboards always
+.I display
+IEC units, so a threshold configured as
+.B 2TB
+is shown as
+.BR "1.8 TiB" .
+.PP
+In a
+.B space
+block a percentage means
+.I percent of total capacity still free:
+.B "warning: 10%"
+fires once free space drops to ten percent of the filesystem or below.
+.PP
+A file has no total capacity, so a percentage in a
+.B size
+block is rejected.
+That threshold is dropped with a warning; the other thresholds in the block
+continue to apply.
+.SH THE space BLOCK
+Enables free-space monitoring for the filesystem holding a watched directory.
+The entry then appears on the
+.B /space
+dashboard and in
+.BR /api/space .
+.TP
+.B warning
+Free space at or below this value is WARNING.
+.TP
+.B critical
+Free space at or below this value is CRITICAL.
+.TP
+.B full
+Free space at or below this value is FULL.
+.PP
+All three are optional and any subset works.
+An empty block, or one whose thresholds all fail to parse, disables free-space
+monitoring for that entry with a warning.
+.PP
+Because the thresholds state how much space must remain
+.IR free ,
+they descend:
+.BR "warning > critical > full" .
+Each is inclusive on the bad side, so free space exactly equal to
+.B warning
+is already WARNING.
+States are evaluated most-severe-first, so a partially configured or even a
+misordered block still yields a defined answer.
+.PP
+Misordered thresholds are reported and marked on the dashboard but never
+silently corrected; the effect is that some alarm states become unreachable.
+When a block mixes percentages with absolute sizes the ordering depends on the
+filesystem's capacity and is therefore checked at poll time, and reported
+through the
+.B space_limits_ordered
+field.
+.PP
+.nf
+paths:
+  - path:  /data/mu2e
+    delay: 300
+    label: "Main data"
+    space:
+      warning:  "10%"        # percent of capacity still free
+      critical: "500 GiB"    # percentages and sizes may be mixed
+      full:     "50 GiB"
+.fi
+.SH THE size BLOCK
+Enables size monitoring for a watched file.
+The entry then appears on the
+.B /sizes
+dashboard and in
+.BR /api/sizes .
+.TP
+.B warning
+Size at or above this value is WARNING.
+.TP
+.B critical
+Size at or above this value is CRITICAL.
+.TP
+.BR full ", " max
+Size at or above this value is FULL.
+.B max
+is an accepted synonym.
+.TP
+.B allow_empty
+When
+.BR true ,
+a zero-length file is not an alarm.
+Default:
+.BR false .
+.PP
+Because the thresholds state how large the file may grow, they ascend:
+.BR "warning < critical < full" .
+.PP
+A zero-length file is EMPTY, checked
+.I before
+any threshold, so a truncated file alarms whatever its limits say.
+A block containing only
+.B allow_empty: false
+and no thresholds is valid and useful: it means "alarm if this file is ever
+zero bytes".
+.PP
+.nf
+files:
+  - path:  /data/mu2e/run_latest.dat
+    delay: 120
+    label: "Latest run data"
+    size:
+      warning:  "1 GiB"
+      critical: "4 GiB"
+      full:     "8 GiB"
+      allow_empty: false
+
+  # alarm only on a zero-length file
+  - path:  /data/mu2e/index.db
+    label: "Run index"
+    size:
+      allow_empty: false
+
+  # legitimately empty most of the time, but should not grow without bound
+  - path:  /var/spool/mu2e/errors.log
+    label: "Error spool"
+    size:
+      allow_empty: true
+      warning:  "1 MiB"
+      critical: "10 MiB"
+.fi
+.SH THE ssh BLOCK
+Watches the path on a remote host.
+Only
+.B host
+is required.
+.TP
+.B host
+Remote hostname, optionally
+.IR user @ host .
+.TP
+.B port
+SSH port.
+Default:
+.BR 22 .
+.TP
+.B key
+Private key file.
+A leading
+.B ~
+is expanded.
+Default: the SSH agent and the usual identity files.
+.TP
+.B timeout
+Connection and command timeout in seconds.
+Default:
+.BR 10 .
+.TP
+.B options
+Extra
+.B ssh
+options, as a list or a single string.
+.PP
+Authentication is non-interactive
+.RB ( BatchMode=yes ),
+so a key that requires a passphrase must already be loaded into an agent.
+.PP
+One SSH round trip per entry retrieves the modification time, the size and,
+for directories, the filesystem usage.
+The probe runs a short
+.B python3
+snippet, which behaves identically on Linux, macOS and BSD remotes.
+A host without
+.B python3
+falls back to
+.BR stat (1),
+trying GNU
+.RB ( "\-c '%Y %s'" )
+and then BSD
+.RB ( "\-f '%m %z'" )
+syntax; the fallback yields the modification time and size but not disk usage,
+so free-space monitoring on such a host reports UNKNOWN.
+The choice is cached per host for the life of the process.
+.PP
+.nf
+    ssh:
+      host:    daq-node01.example.com
+      port:    22
+      key:     ~/.ssh/id_ed25519
+      timeout: 10
+      options:
+        - StrictHostKeyChecking=no
+.fi
+.SH ALARM STATES
+.SS Staleness (the / page)
+.BR ok ", " stale ", " missing ", " unmonitored .
+.SS Free space (the /space page)
+.BR GOOD ", " WARNING ", " CRITICAL ", " FULL ", " MISSING ", " UNKNOWN .
+.SS File size (the /sizes page)
+.BR GOOD ", " EMPTY ", " WARNING ", " CRITICAL ", " FULL ", " MISSING ", "
+.BR UNKNOWN .
+.PP
+.B MISSING
+means the path itself could not be read.
+.B UNKNOWN
+means the path exists but the measurement failed \(em for example a remote host
+where disk usage could not be obtained.
+The distinction matters when deciding whether to page someone.
+.SH EXAMPLE
+A complete file:
+.PP
+.nf
+watcher:
+  web_host:      "0.0.0.0"
+  web_port:      5002
+  poll_interval: 30
+  default_delay: 300
+  daemon:        false
+  pid_file:      "./config/mu2edaq-diskwatcher.pid"
+  log_file:      "./config/mu2edaq-diskwatcher.log"
+
+files:
+  - path:  /var/log/messages
+    delay: 3600
+    label: "System log"
+
+  - path:  /data/mu2e/run_latest.dat
+    delay: 120
+    label: "Latest run data"
+    size:
+      warning:  "1 GiB"
+      critical: "4 GiB"
+      full:     "8 GiB"
+
+  - path:  /data/mu2e/remote.dat
+    delay: 120
+    label: "Remote data"
+    ssh:
+      host: daq-node01.example.com
+
+paths:
+  - path:  /data/mu2e
+    delay: 300
+    label: "Main data"
+    space:
+      warning:  "10%"
+      critical: "500 GiB"
+      full:     "50 GiB"
+
+  - path:  /scratch
+    label: "Scratch volume"    # free space only, no staleness alarm
+    space:
+      warning:  "2 TiB"
+      critical: "500 GiB"
+      full:     "50 GiB"
+.fi
+.SH SEE ALSO
+.BR mu2edaq\-diskwatcher (1),
+.BR ssh_config (5),
+.BR stat (1),
+.BR df (1)
+.SH AUTHORS
+Mu2e DAQ group, Fermi National Accelerator Laboratory.

@@ -20,6 +20,8 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+# NB: the stock Python template ignores lib/ here (setuptools build output).
+# We keep shell libraries in lib/, and builds go to build/, so that rule is out.
 .Python
 build/
 develop-eggs/
@@ -27,7 +29,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/

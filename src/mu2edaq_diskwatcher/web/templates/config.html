@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% macro limits(block) %}
+  {% if block %}
+    <div class="limit-cell">
+      {% for level in ['warning', 'critical', 'full'] %}
+        {% if block[level] %}
+        <div><span class="lvl">{{ level }}</span> {{ block[level].raw }}</div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <span class="text-muted small">&mdash;</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro watch_table(entries, noun, limit_key, limit_header) %}
+<table class="table table-sm mb-0">
+  <thead class="table-light">
+    <tr>
+      <th class="ps-3">Label / Path</th>
+      <th>Staleness</th>
+      <th>{{ limit_header }}</th>
+      <th>Connection</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td class="ps-3">
+        {{ m.path_cell(e) }}
+        {% for err in e.config_errors %}
+        <div class="text-danger small">
+          <i class="bi bi-exclamation-triangle-fill"></i> {{ err }}
+        </div>
+        {% endfor %}
+      </td>
+      <td class="text-nowrap">
+        {% if e.delay is none %}
+          <span class="badge badge-unmonitored">not monitored</span>
+        {% else %}
+          {{ fmt_duration(e.delay) }}
+          <small class="text-muted">({{ e.delay }}&nbsp;s)</small>
+        {% endif %}
+      </td>
+      <td>
+        {{ limits(e[limit_key]) }}
+        {% if limit_key == 'size' and e.allow_empty %}
+        <div class="text-muted small">empty allowed</div>
+        {% endif %}
+      </td>
+      <td>
+        {% if e.ssh %}
+        <span class="badge bg-secondary">
+          <i class="bi bi-hdd-network"></i> {{ e.ssh.get('host', '') }}
+        </span>
+        {% else %}
+        <span class="text-muted small">local</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted p-3">No {{ noun }} configured.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% block content %}
+
+{% if settings.config_issues %}
+<div class="alert alert-warning">
+  <strong><i class="bi bi-exclamation-triangle-fill"></i>
+    {{ settings.config_issues | length }} configuration problem(s)</strong>
+  <ul class="mb-0 mt-2 small">
+    {% for issue in settings.config_issues %}<li>{{ issue }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-gear"></i> Server Settings</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        <tr><th class="ps-3" style="width:30%">Config file</th>
+            <td><code class="small">{{ settings.config_path or '(defaults — no config file loaded)' }}</code></td></tr>
+        <tr><th class="ps-3">Web bind address</th>
+            <td><code>{{ settings.web_host }}:{{ settings.web_port }}</code></td></tr>
+        <tr><th class="ps-3">Poll interval</th>
+            <td>{{ fmt_duration(settings.poll_interval) }}
+              <small class="text-muted">({{ settings.poll_interval }}&nbsp;s)</small></td></tr>
+        <tr><th class="ps-3">Default staleness</th>
+            <td>{{ fmt_duration(settings.default_delay) }}
+              <small class="text-muted">used when an entry omits <code>delay:</code></small></td></tr>
+        <tr><th class="ps-3">Daemon mode</th>
+            <td>{% if settings.daemon %}<span class="badge bg-success">enabled</span>
+                {% else %}<span class="badge bg-secondary">disabled</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">PID file</th>
+            <td>{% if settings.pid_file %}<code class="small">{{ settings.pid_file }}</code>
+                {% else %}<span class="text-muted">(none)</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">Log file</th>
+            <td>{% if settings.log_file %}<code class="small">{{ settings.log_file }}</code>
+                {% else %}<span class="text-muted">(none)</span>{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    Precedence: command line &gt; environment (<code>{{ env_prefix }}*</code>)
+    &gt; config file &gt; built-in defaults.
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-file-earmark-text"></i> Watched Files
+    <small class="text-muted ms-2">{{ files | length }} configured</small>
+  </div>
+  <div class="card-body p-0">
+    {{ watch_table(files, 'files', 'size', 'Size thresholds') }}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-folder2-open"></i> Watched Directories
+    <small class="text-muted ms-2">{{ dirs | length }} configured</small>
+  </div>
+  <div class="card-body p-0">
+    {{ watch_table(dirs, 'directories', 'space', 'Free-space thresholds') }}
+  </div>
+</div>
+
+{% if raw_yaml is not none %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-file-code"></i> Raw Configuration
+      <small class="text-muted ms-2">{{ settings.config_path }}</small>
+    </span>
+    <button class="btn btn-sm btn-outline-secondary" id="copy-btn" onclick="copyYaml()">
+      <i class="bi bi-clipboard"></i> Copy
+    </button>
+  </div>
+  <div class="card-body p-0">
+    <pre id="yaml-pre" class="mb-0 p-3"
+         style="background:#f8f9fa;border-radius:0 0 .375rem .375rem;
+                font-size:.85em;overflow-x:auto">{{ raw_yaml }}</pre>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyYaml() {
+  const text = document.getElementById('yaml-pre').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.innerHTML = '<i class="bi bi-clipboard-check"></i> Copied!';
+    setTimeout(() => { btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+  }).catch(() => {
+    const el = document.getElementById('yaml-pre');
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  });
+}
+</script>
+{% endblock %}

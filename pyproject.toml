@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mu2edaq-diskwatcher"
+dynamic = ["version"]
+description = "File modification-time, free-space and file-size monitor with a web dashboard"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "Flask>=3.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+# Not on PyPI; installed from a sibling checkout by bootstrap_diskwatcher.sh.
+discovery = ["mu2edaq-discovery"]
+
+[project.scripts]
+mu2edaq-diskwatcher = "mu2edaq_diskwatcher.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "mu2edaq_diskwatcher.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"mu2edaq_diskwatcher.web" = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

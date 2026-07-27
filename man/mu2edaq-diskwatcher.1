@@ -1,54 +1,73 @@
-.TH MU2EDAQ\-DISKWATCHER 1 "March 2026" "mu2edaq-diskwatcher 1.1.0" "Mu2e DAQ Utilities"
+.TH MU2EDAQ\-DISKWATCHER 1 "July 2026" "mu2edaq-diskwatcher 1.2.0" "Mu2e DAQ Utilities"
 .SH NAME
-mu2edaq\-diskwatcher \- file modification-time monitor with embedded web dashboard
+mu2edaq\-diskwatcher \- file modification-time, free-space and file-size monitor
+with embedded web dashboard
 .SH SYNOPSIS
 .B mu2edaq\-diskwatcher
 [\fB\-\-config\fR \fIFILE\fR]
 [\fB\-\-host\fR \fIADDR\fR]
 [\fB\-\-port\fR \fIPORT\fR]
 [\fB\-\-poll\-interval\fR \fISECONDS\fR]
+[\fB\-\-default\-delay\fR \fISECONDS\fR]
 [\fB\-\-daemon\fR]
 [\fB\-\-pid\-file\fR \fIFILE\fR]
 [\fB\-\-log\-file\fR \fIFILE\fR]
+[\fB\-\-verbose\fR]
 [\fB\-\-version\fR]
 [\fB\-h\fR]
 .SH DESCRIPTION
 .B mu2edaq\-diskwatcher
-monitors the modification times of files and directories listed in a YAML
-configuration file.
-A background thread periodically calls
-.BR os.path.getmtime (2)
-on each configured path.
-Entries may optionally specify an
-.B ssh
-block to check paths on remote hosts; in that case the mtime is obtained by
-running
-.BR stat (1)
-on the remote machine via
-.BR ssh (1).
-All entries are polled concurrently using a thread pool so that SSH timeouts
-do not block the local checks.
-If the time elapsed since the last modification exceeds the staleness
-threshold specified for that path, the entry is flagged as
+monitors files and directories listed in a YAML configuration file for three
+independent conditions, each with its own alarm states and its own dashboard
+page:
+.TP
+.B Staleness
+The path has not been modified within its configured
+.BR delay .
+A background thread stats each configured path; if the elapsed time since the
+last modification exceeds the threshold, the entry is flagged
 .IR stale .
+An entry with no
+.B delay
+is reported as
+.I unmonitored
+and never raises a staleness alarm.
+.TP
+.B Free space
+The filesystem holding a watched directory has fallen below a threshold given
+in the entry's
+.B space
+block.
+See
+.BR "DISK SPACE MONITORING" .
+.TP
+.B File size
+A watched file is zero length, or has grown past a threshold given in the
+entry's
+.B size
+block.
+See
+.BR "FILE SIZE MONITORING" .
+.PP
+Entries may specify an
+.B ssh
+block to watch paths on remote hosts.
+A single SSH round trip per entry retrieves the modification time, the size,
+and (for directories) the filesystem usage.
+All entries are polled concurrently using a thread pool so that a slow or
+unreachable host does not delay the local checks.
 .PP
 An embedded Flask web server serves a Bootstrap dashboard at
 .BR http://\fIhost\fR:\fIport\fR/ .
-The dashboard displays a table of all watched paths, their last modification
-times, the time elapsed since modification, the configured threshold, and a
-colour-coded status badge
-.RB ( ok " in green or " stale " in red)."
-The browser refreshes the table automatically by polling the
-.B /api/status
-JSON endpoint at a user-selectable interval (default: 10 s).
-.PP
-An
-.B About
-page at
-.B /about
-shows runtime information (hostname, platform, Python version, uptime),
-the active configuration (config file path, bind address, poll interval,
-files watched, run mode), and the versions of Python dependencies.
+The three live pages
+.RB ( / ", " /space " and " /sizes )
+each show summary cards counting the entries in every state, followed by a
+sortable table.
+They refresh by polling their JSON endpoint at a user-selectable interval
+(default: 5 s); the chosen interval is remembered across pages.
+See
+.B WEB ENDPOINTS
+for the full list of pages and API endpoints.
 .PP
 The program may optionally be run as a POSIX background daemon (see
 .BR \-\-daemon ).
@@ -57,228 +76,437 @@ The program may optionally be run as a POSIX background daemon (see
 .BR \-c ", " \-\-config " " \fIFILE\fR
 YAML configuration file to load.
 Defaults to
+.BR diskwatcher.yaml .
+If the file is named explicitly \(em by this option or by
+.B MU2EDAQ_DISKWATCHER_CONFIG
+\(em and does not exist, the program exits with an error.
+A missing
 .B diskwatcher.yaml
-in the current directory.
-If the flag is supplied explicitly and the file does not exist,
-the program exits with an error.
-If the flag is omitted and the default file is absent, built-in defaults
-are used and a warning is printed.
+is tolerated, and built-in defaults are used.
 .TP
 .BR \-\-host " " \fIADDR\fR
-Network address to bind the web server to.
+Bind address for the web server.
 Overrides
 .B watcher.web_host
-from the config file.
+in the configuration file.
 Default:
 .BR 0.0.0.0 .
 .TP
 .BR \-p ", " \-\-port " " \fIPORT\fR
 TCP port for the web server.
 Overrides
-.B watcher.web_port
-from the config file.
+.BR watcher.web_port .
 Default:
 .BR 5002 .
 .TP
 .BR \-\-poll\-interval " " \fISECONDS\fR
-Number of seconds between mtime checks.
+Seconds between polls.
 Overrides
-.B watcher.poll_interval
-from the config file.
+.BR watcher.poll_interval .
 Default:
 .BR 30 .
 .TP
-.BR \-d ", " \-\-daemon
-Detach from the terminal and run as a background daemon using the POSIX
-double-fork technique.
-stdin is closed, stdout and stderr are redirected to
-.B \-\-log\-file
-(or
-.I /dev/null
-if not specified).
-Not supported on Windows.
-Overrides
-.B watcher.daemon
-from the config file.
-.TP
-.BR \-\-pid\-file " " \fIFILE\fR
-Write the daemon process ID to
-.I FILE
-immediately after daemonizing.
-The file is removed automatically when the process exits cleanly.
-Overrides
-.B watcher.pid_file
-from the config file.
-.TP
-.BR \-\-log\-file " " \fIFILE\fR
-Redirect daemon stdout and stderr to
-.IR FILE ,
-opened in append mode so that successive runs accumulate in the same log.
-Has no effect unless
-.B \-\-daemon
-(or
-.BR watcher.daemon: " true)"
-is set.
-Overrides
-.B watcher.log_file
-from the config file.
-.TP
-.B \-\-version
-Print the program version and exit.
-.TP
-.BR \-h ", " \-\-help
-Print a short help message and exit.
-.SH DAEMON MODE
-When started with
-.B \-\-daemon
-(or
-.B watcher.daemon: true
-in the config file), the program uses the standard POSIX double-fork idiom
-to detach completely from the controlling terminal:
-.IP 1. 3
-The process forks; the parent exits so the shell regains its prompt.
-.IP 2.
-The child calls
-.BR setsid (2)
-to start a new session and become its leader.
-.IP 3.
-The child forks again; the session leader exits.
-The grandchild process can never re-acquire a controlling terminal.
-.PP
-After daemonizing, stdin is redirected from
-.IR /dev/null .
-stdout and stderr are redirected to the file named by
-.B \-\-log\-file
-(appended), or to
-.I /dev/null
-if no log file is configured.
-.PP
-A PID file is written when
-.B \-\-pid\-file
-is given; it is removed when the daemon exits cleanly.
-To stop a running daemon:
-.PP
-.RS
-.B kill $(cat /tmp/mu2edaq-diskwatcher.pid)
-.RE
-.SH CONFIGURATION FILE
-The configuration file uses YAML syntax and has three top-level sections:
-.BR watcher ,
-.BR files ,
-and
-.BR paths .
-.SS watcher
-Controls the server and polling behaviour.
-.TP
-.B web_host
-Bind address for the embedded web server (default:
-.BR 0.0.0.0 ).
-.TP
-.B web_port
-TCP port for the embedded web server (default:
-.BR 5002 ).
-.TP
-.B poll_interval
-Seconds between successive mtime checks of all watched paths (default:
-.BR 30 ).
-.TP
-.B daemon
-Boolean.
-Set to
-.B true
-to run as a background daemon (default:
-.BR false ).
-.TP
-.B pid_file
-Path to the PID file written when daemon mode is active.
-Optional; no PID file is written if omitted.
-.TP
-.B log_file
-Path to the log file that receives stdout/stderr when daemon mode is active.
-If omitted, output is discarded to
-.IR /dev/null .
-.SS files
-A YAML sequence of file entries.
-Each entry is a mapping with the following keys:
-.TP
-.B path
-.RI ( required )
-Absolute or relative filesystem path to the file.
-.TP
+.BR \-\-default\-delay " " \fISECONDS\fR
+Staleness threshold applied to entries that specify neither
 .B delay
-Staleness threshold in seconds.
-If the file has not been written within this many seconds it is shown as
-.BR stale .
+nor a
+.BR space / size
+block.
+Overrides
+.BR watcher.default_delay .
 Default:
 .BR 300 .
 .TP
-.B label
-Human-readable name shown in the dashboard instead of the raw path.
-Optional; defaults to the path itself.
+.BR \-d ", " \-\-daemon
+Detach from the terminal and run in the background (POSIX only).
+See
+.BR "DAEMON MODE" .
 .TP
-.B ssh
-Optional mapping that enables checking the file or directory on a remote
-host via SSH instead of the local filesystem.
-Sub-keys:
-.RS
+.BR \-\-pid\-file " " \fIFILE\fR
+Write the daemon's process ID to
+.IR FILE .
+The file is removed at exit.
 .TP
-.B host
-.RI ( required\ inside\ ssh: )
-Hostname or IP address of the remote machine.
+.BR \-\-log\-file " " \fIFILE\fR
+Redirect the daemon's standard output and standard error to
+.IR FILE ,
+opened in append mode.
+Without this, daemon output is discarded.
 .TP
-.B port
-SSH port number.
-Default:
-.BR 22 .
+.BR \-v ", " \-\-verbose
+Log additional detail about remote probes and poll cycles.
 .TP
-.B key
-Path to the private key file to authenticate with.
-If omitted, the SSH agent or the default key
-.RI ( ~/.ssh/id_rsa )
-is used.
+.B \-\-version
+Print the version and exit.
 .TP
-.B timeout
-Connection and command timeout in seconds.
-Default:
-.BR 10 .
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.SH CONFIGURATION PRECEDENCE
+Settings are resolved in four layers, each overriding the one before it:
+.PP
+.nf
+    built-in defaults
+    the YAML configuration file
+    environment variables    (see ENVIRONMENT)
+    command-line options
+.fi
+.PP
+An option that is not supplied at a given layer leaves the previous layer's
+value untouched.
+.SH ENVIRONMENT
+Every setting may be overridden by an environment variable named after it with
+the prefix
+.BR MU2EDAQ_DISKWATCHER_ .
+A value that cannot be parsed is reported as a warning and ignored; it never
+prevents startup.
 .TP
-.B options
-YAML sequence of extra
-.B -o Key=Value
-options passed to
-.BR ssh (1).
-Example:
-.BR "- StrictHostKeyChecking=no" .
-.RE
-.SS paths
-A YAML sequence of directory entries with the same keys as
-.BR files .
-The mtime of a directory reflects when its contents (the directory entry
-itself) last changed, i.e., when files were added or removed.
-To detect writes
-.I inside
-a directory, list the individual files in the
+.B MU2EDAQ_DISKWATCHER_CONFIG
+Path to the YAML configuration file.
+.TP
+.B MU2EDAQ_DISKWATCHER_WEB_HOST
+Web server bind address.
+.TP
+.B MU2EDAQ_DISKWATCHER_WEB_PORT
+Web server port.
+.TP
+.B MU2EDAQ_DISKWATCHER_POLL_INTERVAL
+Seconds between polls.
+.TP
+.B MU2EDAQ_DISKWATCHER_DEFAULT_DELAY
+Default staleness threshold.
+.TP
+.B MU2EDAQ_DISKWATCHER_DAEMON
+Run as a daemon.
+Accepts
+.BR 1 ", " true ", " yes ", " on
+and their negatives.
+.TP
+.B MU2EDAQ_DISKWATCHER_PID_FILE
+Daemon PID file.
+.TP
+.B MU2EDAQ_DISKWATCHER_LOG_FILE
+Daemon log file.
+.TP
+.B MU2EDAQ_DISKWATCHER_VERBOSE
+Verbose logging.
+.PP
+The start and stop scripts additionally read
+.B CRS_PORT_HTTP
+(mapped to
+.BR \-\-port )
+and
+.BR CRS_STOP_TIMEOUT ,
+the seconds to wait after
+.B SIGTERM
+before sending
+.BR SIGKILL ,
+default 10.
+See
+.BR "START AND STOP SCRIPTS" .
+.SH SIZE UNITS
+Thresholds in both
+.B space
+and
+.B size
+blocks accept a number with an optional unit suffix.
+Suffixes are case-insensitive; a bare number means bytes.
+.PP
+.nf
+    SI, powers of 1000:   B  KB/K  MB/M  GB/G  TB/T  PB/P
+    IEC, powers of 1024:      KiB   MiB   GiB   TiB   PiB
+.fi
+.PP
+So
+.B 500 GiB
+is 536870912000 bytes while
+.B 500 GB
+is 500000000000 bytes.
+.PP
+The dashboards always
+.I display
+byte counts in IEC units, so a threshold configured as
+.B 2TB
+is shown as
+.BR "1.8 TiB" .
+That is the same quantity written the other way round, not a rounding error.
+.PP
+A percentage such as
+.B 10%
+is accepted in
+.B space
+blocks only, where it means
+.I ten percent of total capacity still free.
+A file has no total capacity, so a percentage in a
+.B size
+block is rejected: that one threshold is dropped with a warning and the
+remaining thresholds in the block continue to apply.
+.SH DISK SPACE MONITORING
+A
+.B space
+block on a
+.B paths
+entry enables free-space monitoring for the filesystem holding that directory.
+The entry then appears on the
+.B /space
+dashboard and in
+.BR /api/space .
+.PP
+Thresholds state how much space must remain
+.IR free ,
+so they descend:
+.BR "warning > critical > full" .
+Each threshold is optional; any subset works.
+A threshold is inclusive on the bad side, so free space exactly equal to
+.B warning
+is already WARNING.
+.TP
+.B GOOD
+Free space is above every configured threshold.
+.TP
+.B WARNING
+free \(<= warning
+.TP
+.B CRITICAL
+free \(<= critical
+.TP
+.B FULL
+free \(<= full
+.TP
+.B MISSING
+The directory could not be read.
+.TP
+.B UNKNOWN
+The directory exists but its filesystem could not be measured.
+.PP
+Thresholds that do not escalate in the expected order are reported as a warning
+at startup and marked on the dashboard, but are never silently corrected; the
+effect is simply that some alarm states become unreachable.
+When a block mixes percentages with absolute sizes the ordering depends on the
+filesystem's capacity, so it is checked at poll time instead and reported
+through the
+.B space_limits_ordered
+field.
+.SH FILE SIZE MONITORING
+A
+.B size
+block on a
 .B files
-section instead.
+entry enables size monitoring for that file.
+The entry then appears on the
+.B /sizes
+dashboard and in
+.BR /api/sizes .
+.PP
+Thresholds state how large the file may grow, so they ascend:
+.BR "warning < critical < full" .
+.B max
+is accepted as a synonym for
+.BR full .
+Each threshold is optional.
+.TP
+.B GOOD
+The file is below every configured threshold.
+.TP
+.B EMPTY
+The file is zero length.
+This is checked
+.I before
+any threshold, so a truncated file alarms whatever its limits say.
+Set
+.B allow_empty: true
+in the block to suppress it, for files that are legitimately empty most of the
+time.
+.TP
+.B WARNING
+size \(>= warning
+.TP
+.B CRITICAL
+size \(>= critical
+.TP
+.B FULL
+size \(>= full
+.TP
+.B MISSING
+The file could not be read.
+.PP
+A block containing only
+.B allow_empty: false
+and no thresholds is valid and useful: it means "alarm if this file is ever
+zero bytes".
+.SH DAEMON MODE
+With
+.BR \-\-daemon ,
+the process detaches using the POSIX double-fork idiom: it forks, calls
+.BR setsid (2),
+forks again, and the resulting grandchild has no controlling terminal.
+Standard input is redirected from
+.BR /dev/null ,
+and standard output and error to the
+.B \-\-log\-file
+if given, or
+.B /dev/null
+otherwise.
+.PP
+Daemon mode requires
+.BR fork (2)
+and is therefore unavailable on Windows, where the program exits with an error.
+Use a Windows service wrapper or run in the foreground instead.
+.PP
+When
+.B \-\-pid\-file
+is given, the daemon's PID is written there and the file is removed on clean
+exit.
+.B stop\-mu2edaq\-diskwatcher.sh
+uses it to send
+.B SIGTERM
+and, after a timeout,
+.BR SIGKILL .
+.SH START AND STOP SCRIPTS
+.B start\-mu2edaq\-diskwatcher.sh
+and
+.B stop\-mu2edaq\-diskwatcher.sh
+wrap the program for control-room use.
+The start script reads
+.B CRS_PORT_HTTP
+(default 5002), forwards it as
+.BR \-\-port ,
+and runs the daemon with a PID file.
+.PP
+The configuration file may be given positionally \(em the form
+.B crs\-app
+uses \(em or with
+.BR \-c ", " \-\-config " or " \-\-config= \fIFILE\fR.
+The port may be given with
+.BR \-p ", " \-\-port " or " \-\-port= \fIPORT\fR.
+Any other option is forwarded to
+.BR diskwatcher.py
+unchanged.
+.TP
+.B \-\-no\-replace
+Exit with an error if a copy is already running, instead of replacing it.
+.TP
+.BR \-\-pid\-file " " \fIFILE\fR
+PID file to use instead of
+.BR ./diskwatcher.pid .
+The same path is used both to look for a running copy and, as
+.BR \-\-pid\-file ,
+for the daemon to write, so the next start reads the file this one wrote.
+Either way it overrides
+.B watcher.pid_file
+from the configuration file.
+.SS Only one copy runs at a time
+Before starting, the script stops any copy already running out of its own
+directory.
+Without this a second start would leave the first daemon holding the port while
+the new one failed to bind, producing a restart that silently did not restart.
+.PP
+Both scripts look for a running copy in two places, because either alone has a
+blind spot: the PID file misses a copy started by hand or one whose PID file was
+deleted, while the process table misses a copy started from another directory.
+.PP
+A PID is acted on only once its command line confirms it is this application.
+PID numbers are recycled, so a file left behind by a
+.BR SIGKILL ed
+daemon eventually names an unrelated process;
+.BR kill (2)
+signal 0 would report it alive, and signalling it would hit a stranger.
+A candidate found in the process table must additionally have the script's own
+directory as its working directory, so two checkouts on one host never stop each
+other.
+.PP
+Shutdown is
+.B SIGTERM
+followed by
+.B SIGKILL
+after
+.B CRS_STOP_TIMEOUT
+seconds (default 10), which bounds how long a wedged daemon can block a restart.
+.PP
+The shared logic lives in
+.BR ./lib/diskwatcher\-proc.sh ,
+sourced by both scripts.
+Reading another process's working directory needs
+.BR lsof (8),
+because
+.B /proc
+is Linux-only; where
+.B lsof
+is unavailable, process-table candidates are skipped rather than killed on a
+guess, and the PID-file path continues to work.
+.SH CONFIGURATION FILE
+The configuration file has three top-level keys:
+.BR watcher ", " files " and " paths .
+This section summarises the schema; see
+.BR mu2edaq\-diskwatcher.conf (5)
+for the complete reference.
+.SS watcher
+Server settings:
+.BR web_host ", " web_port ", " poll_interval ", " default_delay ", " daemon ", "
+.BR pid_file ", " log_file .
+.SS files
+A list of files to watch.
+Each entry accepts
+.BR path " (required), " delay ", " label ", " ssh " and " size .
+.SS paths
+A list of directories to watch.
+Each entry accepts
+.BR path " (required), " delay ", " label ", " ssh " and " space .
+.PP
+A directory's modification time changes when files are added to or removed from
+it, but not when a file inside it is written.
+To detect writes, list the file itself under
+.BR files .
+.SS delay
+.B delay
+is optional.
+It is resolved as follows:
+.PP
+.nf
+    delay: N          use N seconds
+    delay: null       do not monitor staleness
+    absent, but the entry has a space: or size: block
+                      do not monitor staleness
+    absent, nothing else
+                      use watcher.default_delay (300 s)
+.fi
+.PP
+The last case preserves the behaviour of earlier versions, so an existing
+configuration keeps working unchanged.
 .SH YAML FORMAT
 .nf
 watcher:
   web_host:      "0.0.0.0"
   web_port:      5002
   poll_interval: 30
+  default_delay: 300
   daemon:        false
-  pid_file:      "/tmp/mu2edaq-diskwatcher.pid"
-  log_file:      "/tmp/mu2edaq-diskwatcher.log"
+  pid_file:      "./config/mu2edaq-diskwatcher.pid"
+  log_file:      "./config/mu2edaq-diskwatcher.log"
 
 files:
-  - path:  /data/mu2e/run_001.dat
+  # staleness only, exactly as in earlier versions
+  - path:  /var/log/messages
+    delay: 3600
+    label: "System log"
+
+  # staleness and size
+  - path:  /data/mu2e/run_latest.dat
     delay: 120
-    label: "Run 001 data"
-  - path:  /var/log/artdaq.log
-    delay: 60
-  - path:  /data/mu2e/remote_run.dat
+    label: "Latest run data"
+    size:
+      warning:  "1 GiB"
+      critical: "4 GiB"
+      full:     "8 GiB"
+
+  # alarm only if the file is ever zero length
+  - path:  /data/mu2e/index.db
+    label: "Run index"
+    size:
+      allow_empty: false
+
+  # remote file; all ssh sub-keys except host are optional
+  - path:  /data/mu2e/remote.dat
     delay: 120
-    label: "Remote run data"
     ssh:
       host:    daq-node01.example.com
       port:    22
@@ -288,117 +516,265 @@ files:
         - StrictHostKeyChecking=no
 
 paths:
+  # staleness and free space
   - path:  /data/mu2e
     delay: 300
-    label: "Data directory"
-.fi
-.PP
-Bare string entries (without a mapping) are also accepted; they use the
-default delay of 300 seconds and the path as the label:
-.nf
+    label: "Main data"
+    space:
+      warning:  "10%"
+      critical: "500 GiB"
+      full:     "50 GiB"
 
-files:
-  - /tmp/heartbeat.txt
+  # free space only; omitting delay disables the staleness alarm
+  - path:  /scratch
+    label: "Scratch volume"
+    space:
+      warning:  "2 TiB"
+      critical: "500 GiB"
+      full:     "50 GiB"
 .fi
 .SH WEB ENDPOINTS
+.SS HTML pages
 .TP
-.B GET /
-Main dashboard page showing the file status table.
+.B /
+Watcher.
+Every entry, with its modification time, age and staleness threshold.
+Cards: OK, STALE, MISSING, UNMONITORED, TOTAL.
 .TP
-.B GET /about
-About page with runtime and configuration details.
+.B /space
+Disk Space.
+Directories with a
+.B space
+block, with free space against their thresholds.
+Cards: GOOD, WARNING, CRITICAL, FULL, UNAVAILABLE, TOTAL.
 .TP
-.B GET /api/status
-JSON endpoint returning the current status of all watched paths.
-The response object contains:
-.RS
+.B /sizes
+File Sizes.
+Files with a
+.B size
+block.
+Cards: GOOD, EMPTY, WARNING, CRITICAL, FULL, UNAVAILABLE, TOTAL.
 .TP
-.B total
-Total number of configured paths.
+.B /config
+Settings in effect, the parsed watch list with its thresholds, any
+configuration problems, and the raw YAML.
 .TP
-.B ok
-Number of paths whose age is within their threshold.
+.B /api
+Reference for every JSON endpoint and entry field.
 .TP
-.B stale
-Number of paths whose age exceeds their threshold (or that are inaccessible).
+.B /about
+Version, uptime, host, and dependency versions.
 .TP
-.B poll_interval
-Active poll interval in seconds.
+.B /sitemap
+The structure of the application.
+.SS JSON endpoints
 .TP
+.B /api/status
+All entries in the original flat shape.
+See
+.B COMPATIBILITY
+below.
+.TP
+.B /api/state
+Everything: all entries, the watch, space and size summaries, the version and
+poll timing.
+Preferred for new integrations.
+.TP
+.B /api/space
+Directories with a
+.B space
+block, plus a summary.
+.TP
+.B /api/sizes
+Files with a
+.B size
+block, plus a summary.
+.TP
+.B /api/entries
+Filtered entry list.
+Query parameters:
+.BR kind = file | directory ,
+.BR monitored = space | size ,
+.BR state =\fISTATE\fR.
+.TP
+.B /api/config
+Active settings, the parsed watch list, and any configuration problems.
+.TP
+.B /api/health
+Poller liveness.
+.B status
+is
+.B degraded
+when the last poll is older than three poll intervals, or the configuration has
+problems.
+.TP
+.B /api/version
+Application name and version.
+.SS Per-entry fields
+Identity:
+.BR path ", " label ", " kind ", " remote ", " ssh_host .
+.PP
+Staleness:
+.BR delay ", " delay_str ", " mtime ", " mtime_str ", " age_s ", " age_str ", "
+.BR stale ", " missing ", " error ", " watch_state ", " watch_rank .
+.PP
+Disk usage:
+.BR disk_total ", " disk_used ", " disk_free ", " disk_pct " (percent used), "
+.BR disk_free_pct ", " disk_total_str ", " disk_used_str ", " disk_free_str .
+.PP
+Free-space alarm:
+.BR space_monitored ", " space_state ", " space_rank ", " space_trigger ", "
+.BR space_reason ", " space_limits " (resolved to bytes), " space_limits_str
+(as written in the YAML),
+.BR space_limits_ordered .
+.PP
+Size alarm:
+.BR size ", " size_str ", " size_monitored ", " size_state ", " size_rank ", "
+.BR size_trigger ", " size_reason ", " size_limits ", " size_limits_str ", "
+.BR size_pct ", " size_pct_ref .
+.PP
+Configuration:
+.BR config_errors .
+.PP
+The
+.B *_rank
+fields carry a numeric severity, higher being worse.
+Sort on those rather than re-deriving an ordering from the state names.
+.SS Compatibility
+.B /api/status
+always returns
+.BR files ", " total ", " stale ", " ok " and " poll_interval ,
+and every element of
 .B files
-Array of per-path status objects, each containing
-.BR path ", " label ", " delay ", " mtime ", " mtime_str ", "
-.BR age_s ", " age_str ", " delay_str ", " stale ", and " error .
-.RE
+always carries at least
+.BR path ", " label ", " delay ", " kind ", " remote ", " ssh_host ", " mtime ", "
+.BR mtime_str ", " age_s ", " age_str ", " delay_str ", " stale ", " missing ", "
+.BR error ", " disk_total ", " disk_used ", " disk_free ", " disk_pct ", "
+.BR disk_total_str " and " disk_free_str .
+Keys are added, never removed or retyped.
+The single documented exception is that
+.B delay
+may now be
+.B null
+for an entry that opts out of staleness monitoring.
 .SH FILES
 .TP
-.B diskwatcher.yaml
-Default configuration file, searched for in the current working directory.
+.B ./diskwatcher.yaml
+Default configuration file.
 .TP
-.B /tmp/mu2edaq-diskwatcher.pid
-Default PID file location when
-.B watcher.daemon
-is true and
-.B watcher.pid_file
-is not overridden.
+.B ./config/mu2edaq\-diskwatcher.yaml
+Configuration used by the control-room start script.
 .TP
-.B /tmp/mu2edaq-diskwatcher.log
-Default log file location when
-.B watcher.daemon
-is true and
-.B watcher.log_file
-is not overridden.
-.SH EXAMPLES
-Start with the default configuration file in the current directory:
-.PP
-.RS
+.B ./diskwatcher.py
+Entry-point shim invoked by the start script.
+.TP
+.B ./src/mu2edaq_diskwatcher/
+The application package.
+.TP
+.B ./pyproject.toml
+Packaging metadata; installs the
 .B mu2edaq\-diskwatcher
-.RE
+console script.
+.TP
+.B ./diskwatcher.pid
+Default PID file written by the start script.
+.TP
+.B ./start\-mu2edaq\-diskwatcher.sh
+Control-room start script; replaces any copy already running.
+.TP
+.B ./stop\-mu2edaq\-diskwatcher.sh
+Control-room stop script.
+.TP
+.B ./lib/diskwatcher\-proc.sh
+Process discovery sourced by both scripts.
+.SH EXAMPLES
+Run in the foreground on the default port:
 .PP
-Start with a specific configuration file and a non-default port:
-.PP
-.RS
-.B mu2edaq\-diskwatcher \-\-config /etc/mu2e/diskwatcher.yaml \-\-port 8080
-.RE
-.PP
-Override the poll interval from the command line:
-.PP
-.RS
-.B mu2edaq\-diskwatcher \-\-poll\-interval 10
-.RE
-.PP
-Bind the dashboard to localhost only:
-.PP
-.RS
-.B mu2edaq\-diskwatcher \-\-host 127.0.0.1
-.RE
-.PP
-Start as a background daemon with a log file and PID file:
-.PP
-.RS
-.B mu2edaq\-diskwatcher \-\-daemon \-\-log\-file /var/log/diskwatcher.log \-\-pid\-file /tmp/diskwatcher.pid
-.RE
-.PP
-Stop a running daemon:
-.PP
-.RS
-.B kill $(cat /tmp/diskwatcher.pid)
-.RE
-.PP
-Enable daemon mode via the config file (no CLI flag needed):
-.PP
-.RS
 .nf
-# diskwatcher.yaml
-watcher:
-  daemon:   true
-  pid_file: /tmp/mu2edaq-diskwatcher.pid
-  log_file: /var/log/mu2edaq-diskwatcher.log
+    mu2edaq\-diskwatcher \-\-config config/mu2edaq\-diskwatcher.yaml
 .fi
-.RE
+.PP
+Run as a daemon on port 8080 with a log file:
+.PP
+.nf
+    mu2edaq\-diskwatcher \-c watch.yaml \-p 8080 \-\-daemon \\
+        \-\-pid\-file /var/run/diskwatcher.pid \\
+        \-\-log\-file /var/log/diskwatcher.log
+.fi
+.PP
+Override the port from the environment instead:
+.PP
+.nf
+    MU2EDAQ_DISKWATCHER_WEB_PORT=8080 mu2edaq\-diskwatcher \-c watch.yaml
+.fi
+.PP
+Restart the control-room daemon.
+The running copy is stopped automatically, so no separate stop is needed:
+.PP
+.nf
+    ./start\-mu2edaq\-diskwatcher.sh \-c config/mu2edaq\-diskwatcher.yaml
+.fi
+.PP
+Start only if nothing is running, leaving an existing daemon alone:
+.PP
+.nf
+    ./start\-mu2edaq\-diskwatcher.sh \-\-no\-replace || echo "already running"
+.fi
+.PP
+List every volume in a CRITICAL or FULL state:
+.PP
+.nf
+    curl \-s localhost:5002/api/space | python3 \-c \\
+      'import json,sys; print([e["path"] for e in json.load(sys.stdin)["entries"]
+       if e["space_state"] in ("CRITICAL","FULL")])'
+.fi
+.PP
+List every zero-length file:
+.PP
+.nf
+    curl \-s "localhost:5002/api/entries?state=EMPTY"
+.fi
+.PP
+Check that the poller is alive, for use in a monitoring script:
+.PP
+.nf
+    test "$(curl \-fsS localhost:5002/api/health | \\
+        python3 \-c 'import json,sys; print(json.load(sys.stdin)["status"])')" = ok
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Normal termination.
+.TP
+.B 1
+The configuration file was named explicitly \(em by
+.B \-\-config
+or by
+.B MU2EDAQ_DISKWATCHER_CONFIG
+\(em but does not exist, or daemon mode was requested on a platform without
+.BR fork (2).
+.PP
+Configuration problems within a file that does exist are reported as warnings
+and do not prevent startup: a control-room daemon keeps running on a partly
+bad configuration rather than leaving the experiment unmonitored.
+.PP
+The start script exits
+.B 1
+when the configuration file does not exist, or when a copy is already running
+and
+.B \-\-no\-replace
+was given; and
+.B 2
+when an option is missing its argument.
+The stop script exits
+.B 0
+whether or not anything was running.
 .SH SEE ALSO
-.BR mu2edaq\-dashboard (1),
+.BR mu2edaq\-diskwatcher.conf (5),
 .BR stat (1),
-.BR find (1)
+.BR ssh (1),
+.BR df (1),
+.BR lsof (8),
+.BR kill (1)
 .SH AUTHORS
-Mu2e DAQ Group, Fermi National Accelerator Laboratory.
+Mu2e DAQ group, Fermi National Accelerator Laboratory.

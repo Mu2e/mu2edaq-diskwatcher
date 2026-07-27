@@ -14,6 +14,15 @@ if ! pip install -r requirements.txt; then
     echo "ERROR: dependency installation failed; environment is NOT usable." >&2
     exit 1
 fi
+# Install the application itself (src/mu2edaq_diskwatcher) in editable mode.
+# This provides the mu2edaq-diskwatcher console script and lets pytest import
+# the package without PYTHONPATH. The start script does not depend on it -- it
+# runs diskwatcher.py, which puts ./src on sys.path itself -- but a failure
+# here still means a broken environment, so fail loudly like the step above.
+if ! pip install -e .; then
+    echo "ERROR: could not install mu2edaq-diskwatcher; environment is NOT usable." >&2
+    exit 1
+fi
 # mu2edaq-discovery (auto-discovery protocol) -- best effort: it is not on
 # PyPI, so it cannot live in requirements.txt. Prefer a sibling checkout, fall
 # back to GitHub; the app degrades gracefully to no discovery when absent.

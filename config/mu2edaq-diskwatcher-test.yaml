@@ -24,9 +24,6 @@ watcher:
   daemon:        false       # Set to true to run as a background daemon (POSIX only)
   pid_file:      "./config/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
   log_file:      "./config/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
-  # start-mu2edaq-diskwatcher.sh passes --pid-file ./diskwatcher.pid, which
-  # overrides pid_file above; it also consults the process table, so it still
-  # finds and stops a running copy whichever PID file was used.
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +151,82 @@ paths:
   # Remote directory accessed via SSH.
   - path:  /home
     delay: 600
-    label: "Home on DAQ13"
+    label: "NFS Home on MGR-01"
     ssh:
-      host:    mu2edaq@mu2edaq13.fnal.gov
+      host:    mu2edaq@mu2e-mgr-01.fnal.gov
   #    key:     ~/.ssh/id_ed25519
   #    timeout: 15
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1 GB"
+
+  # Remote directory accessed via SSH.
+  - path:  /daqlogs
+    delay: 600
+    label: "/daqlogs on MGR-01"
+    ssh:
+      host:    mu2edaq@mu2e-mgr-01.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1 GB"
+
+  # Remote directory accessed via SSH.
+  - path:  /scratch
+    delay: 600
+    label: "/scratch on MGR-01"
+    ssh:
+      host:    mu2edaq@mu2e-mgr-01.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1 GB"
+
+  # Remote directory accessed via SSH.
+  - path:  /mongologs
+    delay: 600
+    label: "MongoDB Logs (dcs-01)"
+    ssh:
+      host:    mu2edcs@mu2e-dcs-01.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1 GB"
+
+  # Remote directory accessed via SSH.
+  - path:  /mongologs
+    delay: 600
+    label: "MongoDB Logs (dcs-02)"
+    ssh:
+      host:    mu2edcs@mu2e-dcs-02.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1%"
+
+  # Remote directory accessed via SSH.
+  - path:  /pgdata
+    delay: 600
+    label: "Postgress Data (dcs-01)"
+    ssh:
+      host:    mu2edcs@mu2e-dcs-01.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1%"
+
+  # Remote directory accessed via SSH.
+  - path:  /pgdata
+    delay: 600
+    label: "Postgress Data (dcs-02)"
+    ssh:
+      host:    mu2edcs@mu2e-dcs-02.fnal.gov
+    space:
+       warning: "20%"
+       critical: "5%"
+       full: "1%"
+
 
   # A volume watched for free space only — no staleness alarm.  Omitting
   # "delay" when a "space:" block is present disables staleness monitoring for
