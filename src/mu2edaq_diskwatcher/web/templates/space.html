@@ -59,8 +59,8 @@ registerTable('space', {
   mtime:  r => r.mtime,
 }, 'status');
 
+// Rows for one host group; the empty case is handled by groupedRows().
 function spaceRows(entries) {
-  if (!entries.length) return null;
   let html = '';
   for (const e of entries) {
     const state = e.space_state || 'UNKNOWN';
@@ -89,7 +89,10 @@ function renderSpace(data) {
   const countEl = document.getElementById('space-count');
   if (countEl) countEl.textContent = '(' + entries.length + ')';
   updateSortIndicators('space');
-  fillTable('tbody-space', spaceRows(sortRows('space', entries)), 7,
+  fillTable('tbody-space',
+    groupedRows('space', sortRows('space', entries), spaceRows,
+      {colspan: 7, stateKey: 'space_state', rankKey: 'space_rank',
+       alertRank: data.alert_rank}), 7,
     'No directories are monitored for free space. Add a space: block to an ' +
     'entry under paths: in the YAML config file.');
 }

@@ -63,6 +63,30 @@ Not yet tagged. On `main` as of commit `6f4bdb6` (2026-07-27).
   evaluators, the config loader, poller state-key parity, SSH command
   construction, every route, the CLI, and the start/stop scripts driven against
   real processes.
+- **Host grouping on `/space` and `/sizes`.** Rows are grouped under a header
+  per host — local paths first, then remote hosts alphabetically — and each
+  group collapses on click. A collapsed group still shows one badge per alarm
+  state inside it, so hiding a host never hides a problem. Sorting applies
+  within each group.
+
+  A group opens by default as soon as one of its entries reaches `CRITICAL` or
+  worse (`FULL`, `UNKNOWN`, `MISSING`), and stays collapsed otherwise — `GOOD`,
+  `EMPTY` and `WARNING` alone do not force it open, so a host with only minor
+  concerns still folds down to one line, and only what genuinely needs
+  attention stays on screen. The threshold is a new field on the API payload,
+  `alert_rank`, resolved once server-side from the same severity table the
+  states are ranked by, rather than a number copied into the JavaScript — move
+  the line for what counts as an alarm and the dashboards follow without being
+  touched. The comparison is against that numeric rank, never a state name,
+  and an entry whose health cannot be established counts as needing attention
+  — an unmeasurable filesystem opens its group rather than being quietly
+  folded away.
+
+  Clicking a header overrides the default for that host and that page, and the
+  choice is remembered across refreshes, reloads and navigation. While an
+  override is in place the group stops following its health, so a host pinned
+  shut stays shut even if it later alarms; its header badges still report the
+  state. Clearing the browser's site data resets every group to the default.
 - **This changelog**, linked from the README, the man page `FILES` section and
   the `/about` page, and published as a browsable page for anyone without the
   source tree to hand. Two checks in `tests/test_packaging.py` catch it going

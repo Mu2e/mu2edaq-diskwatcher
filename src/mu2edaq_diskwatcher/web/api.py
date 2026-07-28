@@ -22,8 +22,20 @@ from ..state import (
     space_summary,
     watch_summary,
 )
+from ..thresholds import SEVERITY
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+
+#: Rank at or above which the dashboards hold a host group open, however the
+#: operator last left it.  Shipped to the browser rather than hardcoded there,
+#: so the severity ordering stays defined in exactly one place: bump CRITICAL
+#: in SEVERITY and the front end follows without being touched.
+#:
+#: Because it is a rank and not a name, everything the server ranks *above*
+#: CRITICAL qualifies too -- FULL, UNKNOWN and MISSING.  That is intended: a
+#: vanished path or a filesystem that cannot be measured is at least as urgent
+#: as one that is nearly out of room.
+ALERT_RANK = SEVERITY["CRITICAL"]
 
 #: The per-entry keys /api/status carried before this feature landed.
 LEGACY_ENTRY_KEYS = frozenset({
@@ -78,6 +90,7 @@ def api_space():
     entries = space_entries(STORE.snapshot())
     return jsonify({
         "poll_interval": get_settings().poll_interval,
+        "alert_rank":    ALERT_RANK,
         "summary":       space_summary(entries),
         "entries":       entries,
         **STORE.meta(),
@@ -90,6 +103,7 @@ def api_sizes():
     entries = size_entries(STORE.snapshot())
     return jsonify({
         "poll_interval": get_settings().poll_interval,
+        "alert_rank":    ALERT_RANK,
         "summary":       size_summary(entries),
         "entries":       entries,
         **STORE.meta(),

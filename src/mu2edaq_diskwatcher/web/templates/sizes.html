@@ -60,8 +60,8 @@ registerTable('sizes', {
   mtime:  r => r.mtime,
 }, 'status');
 
+// Rows for one host group; the empty case is handled by groupedRows().
 function sizeRows(entries) {
-  if (!entries.length) return null;
   let html = '';
   for (const e of entries) {
     const state = e.size_state || 'UNKNOWN';
@@ -97,7 +97,10 @@ function renderSizes(data) {
   const countEl = document.getElementById('size-count');
   if (countEl) countEl.textContent = '(' + entries.length + ')';
   updateSortIndicators('sizes');
-  fillTable('tbody-sizes', sizeRows(sortRows('sizes', entries)), 7,
+  fillTable('tbody-sizes',
+    groupedRows('sizes', sortRows('sizes', entries), sizeRows,
+      {colspan: 7, stateKey: 'size_state', rankKey: 'size_rank',
+       alertRank: data.alert_rank}), 7,
     'No files are monitored for size. Add a size: block to an entry under ' +
     'files: in the YAML config file.');
 }

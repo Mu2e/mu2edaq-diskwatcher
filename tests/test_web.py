@@ -1,12 +1,20 @@
+import pathlib
 import time
 
 import pytest
 import yaml
 
+import mu2edaq_diskwatcher.web as _web
 from mu2edaq_diskwatcher.config import entries_from_config
 from mu2edaq_diskwatcher.poller import poll_entry
 from mu2edaq_diskwatcher.state import STORE
 from mu2edaq_diskwatcher.web.api import LEGACY_ENTRY_KEYS
+
+# Resolved from the package rather than the repo, so these still point at the
+# shipped assets when the tests run against an installed wheel.
+_WEB = pathlib.Path(_web.__file__).parent
+TEMPLATES = _WEB / "templates"
+STATIC = _WEB / "static"
 
 PAGES = ["/", "/space", "/sizes", "/config", "/about", "/api", "/sitemap"]
 JSON_ENDPOINTS = ["status", "state", "space", "sizes", "entries",
@@ -133,6 +141,84 @@ def test_sizes_returns_only_size_monitored_files(client, populated):
     counted = sum(payload["summary"][k] for k in
                   ("good", "empty", "warning", "critical", "full", "missing", "unknown"))
     assert counted == payload["summary"]["total"]
+
+
+# ---- host grouping -----------------------------------------------------
+# The dashboards group rows by host and let each group collapse.  That is
+# client-side JS, so pytest cannot execute it; what it can lock is the
+# server->client contract the grouping stands on, and the wiring being present
+# in both halves at once.
+@pytest.mark.parametrize("endpoint", ["/api/space", "/api/sizes"])
+def test_grouping_fields_are_present_on_every_entry(client, populated, endpoint):
+    """hostOf() keys on these two. Drop them and every remote path silently
+    collapses into one bogus 'unknown host' group."""
+    for entry in client.get(endpoint).get_json()["entries"]:
+        assert "remote" in entry, entry.get("path")
+        assert "ssh_host" in entry, entry.get("path")
+        # A local entry must be falsy-remote, not merely missing the key.
+        if not entry["remote"]:
+            assert entry["ssh_host"] is None
+
+
+@pytest.mark.parametrize("page, table", [("space.html", "space"),
+                                         ("sizes.html", "sizes")])
+def test_dashboards_render_rows_through_the_grouper(page, table):
+    src = (TEMPLATES / page).read_text()
+    assert f"groupedRows('{table}'" in src, "page no longer groups by host"
+    # The row builder must not short-circuit on an empty list any more:
+    # groupedRows() owns the empty case, and a null here would print "null".
+    assert "if (!entries.length) return null;" not in src
+
+
+def test_shared_js_defines_the_grouping_helpers():
+    src = (STATIC / "diskwatcher.js").read_text()
+    # The trailing "(" matters: without it "function groupedRows" also matches
+    # a renamed "function groupedRowsX", and the guard never fires.
+    for fn in ("groupedRows", "toggleGroup", "hostOf", "groupByHost",
+               "isCollapsed", "needsAttention"):
+        assert f"function {fn}(" in src, fn
+    # Open/closed state must live outside the DOM: the tbody is rebuilt on
+    # every poll, so a DOM-only toggle would spring back within seconds.
+    assert "hostOverrides" in src
+    assert "diskwatcher.hostGroups" in src
+
+
+def test_group_default_opens_on_rank_not_a_hardcoded_state_name():
+    """A group opens once any entry's rank reaches the server's alert_rank.
+
+    The comparison must stay against the numeric rank the server ships in
+    every /api/space and /api/sizes payload (test_alert_rank_is_shipped_on_
+    space_and_sizes below), never a literal state name -- that is what lets a
+    state be renamed or a new one inserted above CRITICAL without touching the
+    client.
+    """
+    src = (STATIC / "diskwatcher.js").read_text()
+    body = src[src.index("function needsAttention("):src.index("function isCollapsed(")]
+    assert ">= alertRank" in body, body
+    for name in ("GOOD", "CRITICAL", "WARNING", "FULL", "MISSING", "UNKNOWN"):
+        assert name not in body, f"needsAttention() should not name {name!r}"
+
+
+@pytest.mark.parametrize("endpoint", ["/api/space", "/api/sizes"])
+def test_alert_rank_is_shipped_on_space_and_sizes(client, populated, endpoint):
+    """The default-open threshold is defined once, server-side, in SEVERITY.
+
+    The JS only has a hardcoded fallback for a payload that omits this field;
+    a real payload must always carry it, or every group silently falls back to
+    collapsing only when literally nothing has a rank at all.
+    """
+    from mu2edaq_diskwatcher.thresholds import SEVERITY
+    payload = client.get(endpoint).get_json()
+    assert payload["alert_rank"] == SEVERITY["CRITICAL"]
+
+
+def test_js_default_alert_rank_matches_the_servers_critical_rank():
+    """The client's fallback constant must agree with the server's SEVERITY,
+    or a payload missing alert_rank (an old cached response, a stripped-down
+    test double) would open/close groups at the wrong threshold."""
+    from mu2edaq_diskwatcher.thresholds import SEVERITY
+    src = (STATIC / "diskwatcher.js").read_text()
+    assert f"DEFAULT_ALERT_RANK = {SEVERITY['CRITICAL']};" in src
 
 
 @pytest.mark.parametrize("query, expected", [
