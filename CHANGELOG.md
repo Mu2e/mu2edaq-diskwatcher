@@ -63,6 +63,11 @@ Not yet tagged. On `main` as of commit `6f4bdb6` (2026-07-27).
   evaluators, the config loader, poller state-key parity, SSH command
   construction, every route, the CLI, and the start/stop scripts driven against
   real processes.
+- **This changelog**, linked from the README, the man page `FILES` section and
+  the `/about` page, and published as a browsable page for anyone without the
+  source tree to hand. Two checks in `tests/test_packaging.py` catch it going
+  stale: `__version__` must appear in a heading, and every released heading must
+  name a real git tag.
 
 ### Changed
 
