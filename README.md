@@ -291,6 +291,7 @@ process signalled.
 ```
 diskwatcher.py                     entry-point shim (control room runs this)
 pyproject.toml                     packaging; installs the console script
+CHANGELOG.md                       what changed in each release
 config/mu2edaq-diskwatcher.yaml    configuration, heavily commented
 lib/diskwatcher-proc.sh            process discovery shared by start and stop
 man/                               mu2edaq-diskwatcher.1, .conf.5
@@ -311,6 +312,9 @@ src/mu2edaq_diskwatcher/
 
 Notes for anyone extending it:
 
+- Add user-visible changes to `CHANGELOG.md` under `[Unreleased]` as you make
+  them, not at release time. Anything that changes how an existing config
+  behaves, or what the JSON API returns, belongs under **Compatibility**.
 - `settings.get_settings()` must be called *inside* functions, never bound at
   module scope — the CLI mutates the singleton after import.
 - `poller._null_state()` defines every key the API can emit. Add new fields
@@ -327,6 +331,11 @@ internet access the pages still work but render unstyled.
 
 Runs on Linux, macOS and Windows. Daemon mode (`--daemon`) requires `fork(2)`
 and is POSIX-only; on Windows run in the foreground under a service wrapper.
+
+## Changes
+
+[CHANGELOG.md](CHANGELOG.md) tracks what changed in each release, including
+which changes affect an existing config or an integration reading the JSON API.
 
 ## License
 

@@ -72,3 +72,48 @@ def test_shim_still_exists():
     shim = REPO / "diskwatcher.py"
     assert shim.is_file()
     assert "mu2edaq_diskwatcher.cli" in shim.read_text()
+
+
+# ---- changelog ---------------------------------------------------------
+# A changelog's failure mode is drifting out of date without anyone noticing,
+# so the two things that can be checked mechanically are checked here. Whether
+# an entry is *accurate* is a review question; these only catch a version bump
+# that left the changelog behind.
+def test_changelog_exists():
+    assert (REPO / "CHANGELOG.md").is_file()
+
+
+def test_current_version_appears_in_the_changelog():
+    """A version bump with no changelog entry is the drift this catches."""
+    text = (REPO / "CHANGELOG.md").read_text()
+    version = mu2edaq_diskwatcher.__version__
+    heading = next((line for line in text.splitlines()
+                    if line.startswith("## ") and version in line), None)
+    assert heading, f"no '## ' heading mentions {version}"
+
+
+def test_every_released_changelog_heading_names_a_real_tag():
+    """Guards against a heading invented for a release that never got tagged.
+
+    Skipped outside a git checkout (a source tarball has no tags), and the
+    Unreleased heading is exempt by definition.
+    """
+    import subprocess
+    try:
+        out = subprocess.run(["git", "tag"], cwd=str(REPO), capture_output=True,
+                             text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("git unavailable")
+    if out.returncode != 0:
+        pytest.skip("not a git checkout")
+    tags = set(out.stdout.split())
+
+    for line in (REPO / "CHANGELOG.md").read_text().splitlines():
+        if not line.startswith("## ["):
+            continue
+        label = line[line.index("[") + 1:line.index("]")]
+        if label == "Unreleased":
+            continue
+        # A heading may cover two tags that point at the same commit.
+        named = [t.strip() for t in label.split("/")]
+        assert any(t in tags for t in named), f"no such tag: {label}"
