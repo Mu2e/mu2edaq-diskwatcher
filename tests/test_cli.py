@@ -13,6 +13,7 @@ naming the wrong option and hiding the rest of the interface.
 
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -23,6 +24,16 @@ from mu2edaq_diskwatcher.settings import ENV_PREFIX, get_settings
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 START = REPO / "start-mu2edaq-diskwatcher.sh"
+
+
+def _bash(p):
+    """Bash-usable form of a path.
+
+    On Windows, MSYS/Git-Bash collapses backslashes in a native path
+    (``C:\\Users\\x`` -> ``C:Usersx``); the forward-slash form is accepted as-is,
+    so the bash-script tests run under Git Bash instead of erroring with 127.
+    """
+    return pathlib.Path(p).as_posix()
 
 
 # ---- the parser itself ------------------------------------------------
@@ -105,7 +116,8 @@ def test_command_line_config_beats_the_environment(tmp_path):
 
 
 # ---- the control-room start script ------------------------------------
-@pytest.mark.skipif(not START.exists(), reason="start script not present")
+@pytest.mark.skipif(os.name != "posix" or not START.exists() or not shutil.which("bash"),
+                    reason="POSIX bash start script (Windows uses the .ps1 port; see test_windows_scripts.py)")
 @pytest.mark.parametrize("argv", [
     ["CONFIG"],                       # historical positional form (crs-app)
     ["-c", "CONFIG"],
@@ -116,33 +128,35 @@ def test_start_script_accepts_the_config_every_way(tmp_path, argv):
     """`-c FILE` used to make the flag itself the filename."""
     cfg = tmp_path / "test.yaml"
     cfg.write_text("watcher:\n  web_port: 5199\n")
-    argv = [a.replace("CONFIG", str(cfg)) for a in argv]
+    argv = [a.replace("CONFIG", _bash(cfg)) for a in argv]
 
     # DW_DRY_RUN stops short of exec so the test never starts a daemon.
     result = subprocess.run(
-        ["bash", str(START), *argv], capture_output=True, text=True,
+        ["bash", _bash(START), *argv], capture_output=True, text=True,
         timeout=30, cwd=str(REPO), env=dict(os.environ, DW_DRY_RUN="1"),
     )
     assert result.returncode == 0, result.stderr
-    assert f"config: {cfg}" in result.stdout, result.stdout
+    assert f"config: {_bash(cfg)}" in result.stdout, result.stdout
 
 
-@pytest.mark.skipif(not START.exists(), reason="start script not present")
+@pytest.mark.skipif(os.name != "posix" or not START.exists() or not shutil.which("bash"),
+                    reason="POSIX bash start script (Windows uses the .ps1 port; see test_windows_scripts.py)")
 def test_start_script_rejects_a_config_flag_with_no_argument():
     result = subprocess.run(
-        ["bash", str(START), "-c"], capture_output=True, text=True,
+        ["bash", _bash(START), "-c"], capture_output=True, text=True,
         timeout=30, cwd=str(REPO), env=dict(os.environ, DW_DRY_RUN="1"),
     )
     assert result.returncode == 2
     assert "requires a file argument" in result.stderr
 
 
-@pytest.mark.skipif(not START.exists(), reason="start script not present")
+@pytest.mark.skipif(os.name != "posix" or not START.exists() or not shutil.which("bash"),
+                    reason="POSIX bash start script (Windows uses the .ps1 port; see test_windows_scripts.py)")
 def test_start_script_forwards_the_port(tmp_path):
     cfg = tmp_path / "test.yaml"
     cfg.write_text("watcher: {}\n")
     result = subprocess.run(
-        ["bash", str(START), str(cfg), "-p", "5188"], capture_output=True,
+        ["bash", _bash(START), _bash(cfg), "-p", "5188"], capture_output=True,
         text=True, timeout=30, cwd=str(REPO), env=dict(os.environ, DW_DRY_RUN="1"),
     )
     assert result.returncode == 0, result.stderr
