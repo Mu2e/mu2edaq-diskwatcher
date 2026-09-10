@@ -92,6 +92,13 @@ Not yet tagged. On `main` as of commit `6f4bdb6` (2026-07-27).
   source tree to hand. Two checks in `tests/test_packaging.py` catch it going
   stale: `__version__` must appear in a heading, and every released heading must
   name a real git tag.
+- **Host configuration `config/mu2e-diskwatcher-dl-01.yaml`** for the
+  `mu2e-dl-01` data-logger node: free-space monitoring on `/data`, `/daqlogs`,
+  `/scratch`, `/home`, `/var`, `/var/log` and `/tmp`, and size monitoring on
+  `/var/log/messages` and `/var/log/secure`. All entries are host-local (no
+  `ssh:` blocks); the two system logs set `allow_empty: true` so logrotate
+  truncation does not alarm, with a `delay:` on `messages` to catch a dead
+  rsyslog instead.
 
 ### Changed
 

@@ -1,0 +1,112 @@
+# mu2e-diskwatcher-dl-01.yaml — disk watcher configuration for mu2e-dl-01
+#
+# Host-local configuration: every entry below is read on the machine running
+# the watcher, so there are no ssh: blocks.  Run it with
+#
+#     ./start-mu2edaq-diskwatcher.sh -c ./config/mu2e-diskwatcher-dl-01.yaml
+#
+# Override order (increasing priority):
+#
+#     command line  >  environment  >  this file  >  built-in defaults
+#
+# Threshold syntax is documented in config/mu2edaq-diskwatcher.yaml.  In short:
+# "space:" thresholds name how much space must remain FREE and therefore
+# descend (warning > critical > full); percentages are percent of total
+# capacity still free.  "size:" thresholds name file length and ascend
+# (warning < critical < full); percentages are not allowed there.
+
+watcher:
+  web_host:      "0.0.0.0"   # Bind address for the Flask web server
+  web_port:      5002        # HTTP port for the dashboard
+  poll_interval: 30          # Seconds between checks
+  default_delay: 300         # Staleness threshold for entries that omit "delay"
+  daemon:        false       # Set to true to run as a background daemon
+  pid_file:      "./config/mu2e-diskwatcher-dl-01.pid"
+  log_file:      "./config/mu2e-diskwatcher-dl-01.log"
+
+
+# ---------------------------------------------------------------------------
+# Files watched for size (and, where useful, staleness)
+# ---------------------------------------------------------------------------
+# allow_empty: true is set on the rotated system logs.  logrotate truncates or
+# recreates them, so a zero-length file is a routine transient rather than a
+# fault; a dead rsyslog is caught by the delay: staleness check instead.
+files:
+  - path:  /var/log/messages
+    label: "syslog (messages)"
+    delay: 3600              # rsyslog writes at least hourly; stale => rsyslog down
+    size:
+      allow_empty: true
+      warning:  "500 MiB"
+      critical: "2 GiB"
+      full:     "8 GiB"
+
+  - path:  /var/log/secure
+    label: "auth log (secure)"
+    # No delay: — auth events are sparse and a quiet secure log is normal.
+    size:
+      allow_empty: true
+      warning:  "100 MiB"
+      critical: "500 MiB"
+      full:     "2 GiB"
+
+
+# ---------------------------------------------------------------------------
+# Directories watched for free space
+# ---------------------------------------------------------------------------
+# Thresholds are per-filesystem: if two of these paths live on the same mount,
+# both entries report the same free space.
+#
+# /var/log is a directory, so it is monitored here for the free space of the
+# filesystem holding it, not as a file size — "size:" applies to files only.
+paths:
+  - path:  /data
+    label: "DAQ data volume"
+    delay: 600               # new files should land at least every 10 min
+    space:
+      warning:  "10%"
+      critical: "5%"
+      full:     "500 GiB"
+
+  - path:  /daqlogs
+    label: "DAQ logs volume"
+    delay: 600               # log files should be created/rotated regularly
+    space:
+      warning:  "15%"
+      critical: "5%"
+      full:     "20 GiB"
+
+  - path:  /scratch
+    label: "Scratch volume"
+    space:
+      warning:  "15%"
+      critical: "5%"
+      full:     "100 GiB"
+
+  - path:  /home
+    label: "Home directories"
+    space:
+      warning:  "15%"
+      critical: "5%"
+      full:     "10 GiB"
+
+  - path:  /var
+    label: "System /var"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
+
+  - path:  /var/log
+    label: "System /var/log"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
+
+  - path:  /tmp
+    label: "Temp directory"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
