@@ -1,7 +1,13 @@
 import pytest
 import yaml
 
-from mu2edaq_diskwatcher.config import entries_from_config, load_config
+from mu2edaq_diskwatcher.config import (
+    entries_from_config,
+    load_config,
+    normalise_peer_url,
+    peers_from_config,
+    peers_from_urls,
+)
 
 
 def build(text, default_delay=300):
@@ -222,3 +228,92 @@ def test_load_config_missing_exits_when_required(tmp_path):
 
 def test_empty_config_yields_no_entries():
     assert build("") == ([], [])
+
+
+# ------------------------------------------------------------------- peers
+def peers(text):
+    return peers_from_config(yaml.safe_load(text) or {})
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("http://node:5002",   "http://node:5002"),
+    ("http://node:5002/",  "http://node:5002"),      # one instance, one spelling
+    ("https://node",       "https://node"),
+    ("node:5002",          "http://node:5002"),      # scheme optional
+    ("node",               "http://node"),
+    ("",                   None),
+    ("   ",                None),
+    ("ftp://node",         None),
+    ("http://",            None),
+    ("http://node?x=1",    None),
+])
+def test_peer_url_normalisation(raw, expected):
+    assert normalise_peer_url(raw) == expected
+
+
+def test_peer_mapping_is_parsed():
+    result, issues = peers("peers:\n  - url: http://dl-01:5002\n    label: DL-01\n"
+                           "    timeout: 2.5\n    enabled: false\n")
+    assert issues == []
+    assert result == [{"url": "http://dl-01:5002", "label": "DL-01", "timeout": 2.5,
+                       "enabled": False, "config_errors": []}]
+
+
+def test_peer_label_defaults_to_host_and_port():
+    result, _ = peers("peers:\n  - url: http://dl-01.fnal.gov:5002/\n")
+    assert result[0]["label"] == "dl-01.fnal.gov:5002"
+
+
+def test_bare_string_peer_is_accepted():
+    result, issues = peers("peers:\n  - dl-01:5002\n")
+    assert issues == []
+    assert result[0]["url"] == "http://dl-01:5002"
+    assert result[0]["timeout"] is None and result[0]["enabled"] is True
+
+
+def test_peer_without_url_is_dropped_with_a_warning():
+    result, issues = peers("peers:\n  - label: nameless\n")
+    assert result == []
+    assert any("no url" in i for i in issues)
+
+
+def test_peer_with_bad_url_is_dropped_but_siblings_survive():
+    result, issues = peers("peers:\n  - url: ftp://nope\n  - url: http://ok:1\n")
+    assert [p["url"] for p in result] == ["http://ok:1"]
+    assert any("not an http(s) URL" in i for i in issues)
+
+
+def test_bad_peer_timeout_warns_and_uses_the_default():
+    result, issues = peers("peers:\n  - url: http://a:1\n    timeout: soon\n")
+    assert result[0]["timeout"] is None
+    assert any("timeout" in i for i in issues)
+    assert result[0]["config_errors"]                 # surfaced per peer too
+
+
+def test_unknown_peer_key_warns():
+    _, issues = peers("peers:\n  - url: http://a:1\n    lable: typo\n")
+    assert any("lable" in i for i in issues)
+
+
+def test_duplicate_peer_keeps_the_first():
+    result, issues = peers("peers:\n  - url: http://a:1\n    label: first\n"
+                           "  - url: http://a:1/\n    label: second\n")
+    assert [p["label"] for p in result] == ["first"]
+    assert any("more than once" in i for i in issues)
+
+
+def test_peers_that_is_not_a_list_is_rejected():
+    result, issues = peers("peers:\n  url: http://a:1\n")
+    assert result == []
+    assert any("must be a list" in i for i in issues)
+
+
+def test_no_peers_key_is_fine():
+    assert peers("files: []") == ([], [])
+
+
+def test_peers_from_urls_matches_the_yaml_form():
+    result, issues = peers_from_urls(["dl-01:5002", "http://dl-02:5002/"])
+    assert issues == []
+    assert [p["url"] for p in result] == ["http://dl-01:5002", "http://dl-02:5002"]
+    assert result[0]["label"] == "dl-01:5002"

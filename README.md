@@ -12,7 +12,10 @@ It answers three questions about the paths you point it at:
 | Is this file empty, or growing out of control? | `size:` | `/sizes` — File Sizes |
 
 Each page shows summary cards counting the entries in every alarm state,
-followed by a sortable table. Local and remote (SSH) paths are both supported.
+followed by a sortable table. Local and remote (SSH) paths are both supported,
+and instances can be [federated](#peers-aggregating-other-instances): one
+dashboard can show what the diskwatchers on other nodes are monitoring, each
+under its own heading.
 
 ## Quick start
 
@@ -42,8 +45,8 @@ installed by `pip install -e .`.
 
 ## Configuration
 
-The YAML file has three top-level keys: `watcher`, `files` and `paths`. Full
-reference in `man 5 mu2edaq-diskwatcher.conf`; the shipped
+The YAML file has four top-level keys: `watcher`, `files`, `paths` and
+`peers`. Full reference in `man 5 mu2edaq-diskwatcher.conf`; the shipped
 `config/mu2edaq-diskwatcher.yaml` is heavily commented and doubles as a
 worked example.
 
@@ -147,6 +150,54 @@ The last row preserves pre-1.2.0 behaviour, so an existing config keeps
 alarming exactly as before. Entries with no staleness threshold show as
 `unmonitored` on the Watcher page and are excluded from the OK/STALE counts.
 
+### Peers: aggregating other instances
+
+Every DAQ node runs its own diskwatcher against its own disks. A `peers:` list
+lets one instance also show what the others are watching:
+
+```yaml
+watcher:
+  peer_timeout:  5             # seconds per fetch (default 5)
+  #peer_interval: 30           # seconds between fetches (default: poll_interval)
+
+peers:
+  - url:   http://mu2e-dl-01.fnal.gov:5002
+    label: "mu2e-dl-01"        # default: host:port
+  - mu2e-dl-02.fnal.gov:5002   # bare form; scheme optional
+```
+
+Each peer's `/api/state` is fetched on a background thread, concurrently and
+with a timeout, so a dead peer never delays the local poll or the web server.
+The peer's entries then appear on all three dashboards as their own collapsible
+group after the local host groups, headed by the peer's label, its URL (linking
+to the same page there), the hostname and version it reports, and how old the
+data is. The stat cards count local entries plus every reachable peer, and a
+strip under the cards shows one chip per peer.
+
+Three deliberate choices:
+
+- **States are the peer's own.** It evaluated its thresholds against disks it
+  can see; this instance displays the result and never recomputes it.
+- **Aggregation is one hop.** A peer is asked for its own entries only, so two
+  instances may list each other without looping. An instance recognises its
+  own `instance_id` and refuses a peer URL that resolves back to itself.
+- **An outage dims, it does not erase.** While a peer is unreachable its last
+  good rows stay on screen, greyed and italic, with the error and how long ago
+  the data was current. They are excluded from every count. A peer's problem
+  does not degrade this instance's `/api/health`.
+
+The list can be replaced without editing the file:
+
+```bash
+MU2EDAQ_DISKWATCHER_PEERS="dl-01:5002 dl-02:5002" python diskwatcher.py
+python diskwatcher.py --peer dl-01:5002 --peer http://dl-02:5002
+python diskwatcher.py --no-peers            # ignore every configured peer
+```
+
+`--peer-timeout` and `--peer-interval` (or `PEER_TIMEOUT` / `PEER_INTERVAL` in
+the environment) override the two `watcher` keys. Connection status is on the
+Config page and at `/api/peers`.
+
 ### Precedence
 
 ```
@@ -155,7 +206,9 @@ command line  >  environment  >  config file  >  built-in defaults
 
 Environment overrides are named `MU2EDAQ_DISKWATCHER_*`: `CONFIG`, `WEB_HOST`,
 `WEB_PORT`, `POLL_INTERVAL`, `DEFAULT_DELAY`, `DAEMON`, `PID_FILE`, `LOG_FILE`,
-`VERBOSE`. An unparseable value is warned about and ignored.
+`VERBOSE`, `PEERS`, `PEER_TIMEOUT`, `PEER_INTERVAL`. An unparseable value is
+warned about and ignored. The peer list is layered too: `--peer` replaces
+`PEERS`, which replaces the file's `peers:`.
 
 ## Pages
 
@@ -180,10 +233,21 @@ The three dashboards poll their own JSON endpoint at a selectable interval
 | `/api/state` | Everything: entries plus watch/space/size summaries |
 | `/api/space` | Directories with a `space:` block, plus a summary |
 | `/api/sizes` | Files with a `size:` block, plus a summary |
-| `/api/entries` | Filtered list: `?kind=`, `?monitored=`, `?state=` |
-| `/api/config` | Active settings, parsed watch list, config problems |
-| `/api/health` | Poller liveness; `degraded` if stalled or misconfigured |
-| `/api/version` | Name and version |
+| `/api/entries` | Filtered list: `?kind=`, `?monitored=`, `?state=`, `?peer=` |
+| `/api/peers` | Connection status of every configured peer, without entries |
+| `/api/config` | Active settings, parsed watch list, peer list, config problems |
+| `/api/health` | Poller liveness; `degraded` if stalled or misconfigured; peer counts |
+| `/api/version` | Name, version, `instance_id`, hostname |
+
+The first five return this instance's own entries by default. Add `?peers=1`
+and `/api/status`, `/api/state`, `/api/space` and `/api/sizes` gain `peers`
+(one record per configured peer: connection details, status, that peer's
+entries filtered as the endpoint filters local ones, and their summary) and
+`aggregate` (the summary over local plus reachable peers). `/api/entries?peers=1`
+folds reachable peers' entries into the flat list, each stamped `peer` and
+`peer_url`. Without the flag the payloads are unchanged, which is also what
+keeps federation to one hop: a peer fetching us gets our entries and nothing
+further away.
 
 ```bash
 # every volume in a CRITICAL or FULL state
@@ -196,6 +260,14 @@ curl -s "localhost:5002/api/entries?state=EMPTY"
 
 # is the poller alive?
 curl -s localhost:5002/api/health | python3 -m json.tool
+
+# which peers are unreachable?
+curl -s localhost:5002/api/peers | python3 -c \
+  'import json,sys; print([p["label"] for p in json.load(sys.stdin)["peers"]
+   if p["status"] != "ok"])'
+
+# every CRITICAL volume here or on any reachable peer
+curl -s "localhost:5002/api/entries?peers=1&monitored=space&state=CRITICAL"
 ```
 
 Each entry carries a numeric `*_rank` alongside its state — sort on that rather
@@ -281,7 +353,10 @@ The test suite covers the threshold parser and state evaluators (pure
 functions, where all the alarm logic lives), the config loader's fallback and
 validation rules, poller state-key parity between the success and failure
 paths, SSH command construction and probe parsing with `subprocess` stubbed,
-and a Flask test-client pass over every route. `tests/test_scripts.py` drives
+the peer client against a real loopback HTTP server (refused, timed out, HTTP
+error, not JSON, not a diskwatcher, oversized, self-reference, retained data
+on failure), and a Flask test-client pass over every route with and without
+`?peers=1`. `tests/test_scripts.py` drives
 the start and stop scripts against real processes, including the case that must
 *not* happen: a stale PID file naming a recycled PID never gets an unrelated
 process signalled.
@@ -300,9 +375,10 @@ src/mu2edaq_diskwatcher/
     settings.py    process-wide settings singleton (defaults→YAML→env→CLI)
     state.py       StateStore holding the latest poll results, plus summaries
     thresholds.py  threshold parsing and state evaluation — pure functions
-    config.py      YAML loading and watch-entry construction
+    config.py      YAML loading; watch-entry and peer construction
     ssh.py         one-round-trip remote probe, with a stat(1) fallback
     poller.py      the polling thread
+    peers.py       the peer-fetch thread: urllib GET of each peer's /api/state
     formatting.py  fmt_duration / fmt_bytes / fmt_pct
     daemon.py      double-fork daemonisation and PID files
     discovery.py   best-effort service-discovery responder
@@ -319,7 +395,12 @@ Notes for anyone extending it:
   module scope — the CLI mutates the singleton after import.
 - `poller._null_state()` defines every key the API can emit. Add new fields
   there so the success and error paths stay identical; `STATE_KEYS` and a test
-  enforce it.
+  enforce it. `state.peer_record()` plays the same role for peer records.
+- Peer entries are shown as the peer evaluated them. Do not "improve" them by
+  re-running the threshold code here; the peer's config is not available and
+  the two dashboards would disagree.
+- `/api/state` without `?peers=1` is what a peer fetches from us. Keep the
+  default local-only, or federation stops being one hop.
 - The navbar is defined once, in `web/nav.py`.
 - Python 3.9 compatibility is maintained: use `Optional[X]`, not `X | None`.
 

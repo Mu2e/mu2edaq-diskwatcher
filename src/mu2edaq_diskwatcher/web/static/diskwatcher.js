@@ -294,10 +294,126 @@ function groupHeaderRow(table, host, entries, collapsed, opts) {
     '</td></tr>';
 }
 
+// ---- peer groups -------------------------------------------------------
+// A peer is another diskwatcher instance whose /api/state this one fetches.
+// Its entries arrive already evaluated -- the peer owns its thresholds -- and
+// are shown as one group per peer after the local host groups, headed by the
+// peer's connection details.  The collapse memory is the same store the host
+// groups use, keyed by URL so a relabelled peer keeps its setting.
+const PEER_KEY_PREFIX = 'peer:';
+
+function peerKey(peer) { return PEER_KEY_PREFIX + peer.url; }
+
+// A peer that is not delivering current data always holds its group open:
+// "unreachable" is the thing on this page most worth an operator's eye, and
+// it has no entry rank of its own to say so.  Connected peers follow their
+// entries' health exactly like a host group.
+function peerNeedsAttention(peer, entries, rankKey, alertRank) {
+  if (peer.status !== 'ok') return peer.status !== 'disabled';
+  return needsAttention(entries, rankKey, alertRank);
+}
+
+function isPeerCollapsed(table, peer, entries, rankKey, alertRank) {
+  const override = hostOverrides[collapseId(table, peerKey(peer))];
+  if (override === true || override === false) return override;
+  return !peerNeedsAttention(peer, entries, rankKey, alertRank);
+}
+
+// Stable order: by label, then URL.  Local groups always come first, so a
+// peer's position never depends on how it is doing.
+function sortPeers(peers) {
+  return [...peers].sort((a, b) =>
+    String(a.label).localeCompare(String(b.label)) ||
+    String(a.url).localeCompare(String(b.url)));
+}
+
+// Short human age: "12 s", "3 min", "2 h".
+function fmtAge(seconds) {
+  if (seconds === null || seconds === undefined) return DASH;
+  if (seconds < 90) return Math.round(seconds) + ' s';
+  if (seconds < 5400) return Math.round(seconds / 60) + ' min';
+  return (seconds / 3600).toFixed(1) + ' h';
+}
+
+const PEER_BADGE = {
+  ok:       ['bg-success',   'connected'],
+  error:    ['bg-danger',    'unreachable'],
+  pending:  ['bg-secondary', 'connecting'],
+  disabled: ['bg-secondary', 'disabled'],
+};
+
+function peerStatusBadge(peer) {
+  const [cls, text] = PEER_BADGE[peer.status] || PEER_BADGE.pending;
+  const title = peer.status === 'error'
+    ? (peer.error || 'fetch failed') +
+      (peer.last_ok_str ? '. Last good data ' + peer.last_ok_str : '')
+    : text;
+  return '<span class="badge ' + cls + ' peer-status" title="' + escHtml(title) +
+         '">' + text + '</span>';
+}
+
+// One line of connection facts after the label: the URL as a link to the same
+// page on the peer, the hostname it reports, its version, and how old the
+// data is (time since we fetched it plus the peer's own poll age at the time).
+function peerDetails(peer) {
+  const parts = [];
+  parts.push('<a class="group-url" href="' + escHtml(peer.url + window.location.pathname) +
+             '" target="_blank" rel="noopener" title="Open this page on the peer">' +
+             escHtml(peer.url) + ' <i class="bi bi-box-arrow-up-right"></i></a>');
+  if (peer.hostname && peer.hostname !== peer.label) parts.push(escHtml(peer.hostname));
+  if (peer.version) parts.push('v' + escHtml(peer.version));
+  if (peer.status === 'ok') {
+    const age = (peer.fetched_age_s || 0) + (peer.peer_poll_age_s || 0);
+    parts.push('data ' + fmtAge(age) + ' old');
+  } else if (peer.status === 'error') {
+    parts.push('<span class="text-danger">' + escHtml(peer.error || 'fetch failed') + '</span>');
+    if (peer.last_ok_age_s !== null && peer.last_ok_age_s !== undefined) {
+      parts.push('last data ' + fmtAge(peer.last_ok_age_s) + ' ago');
+    }
+  }
+  return parts.join('<span class="group-sep">&middot;</span>');
+}
+
+function peerHeaderRow(table, peer, entries, collapsed, opts) {
+  const why = collapsed ? 'Click to open.' : 'Click to collapse.';
+  return '<tr class="group-row peer-row peer-' + escHtml(peer.status) + '">' +
+    '<td colspan="' + opts.colspan + '">' +
+    '<button type="button" class="group-toggle" ' +
+      'title="' + escHtml('Peer diskwatcher at ' + peer.url + '. ' + why) + '" ' +
+      'aria-expanded="' + (collapsed ? 'false' : 'true') + '" ' +
+      'onclick="toggleGroup(\'' + escHtml(table) + '\',\'' + escHtml(peerKey(peer)) +
+        '\',' + (collapsed ? 'true' : 'false') + ')">' +
+      '<i class="bi bi-caret-' + (collapsed ? 'right' : 'down') + '-fill"></i>' +
+      '<i class="bi bi-diagram-3"></i>' +
+      '<span class="group-host">' + escHtml(peer.label) + '</span>' +
+      '<span class="group-count">' + entries.length +
+        (entries.length === 1 ? ' entry' : ' entries') + '</span>' +
+    '</button>' +
+    peerStatusBadge(peer) +
+    '<span class="group-details">' + peerDetails(peer) + '</span>' +
+    '<span class="group-chips">' +
+      groupChips(entries, opts.stateKey, opts.rankKey) + '</span>' +
+    '</td></tr>';
+}
+
+// What an open peer group shows when it has no rows to show.
+function peerPlaceholderRow(peer, colspan) {
+  let text;
+  if (peer.status === 'pending')       text = 'Connecting…';
+  else if (peer.status === 'disabled') text = 'Disabled in the configuration.';
+  else if (peer.status === 'error')    text = 'Unreachable, and no data has been received yet.';
+  else                                 text = 'Nothing on this peer applies to this page.';
+  return '<tr class="peer-placeholder"><td colspan="' + colspan +
+         '" class="text-muted small ps-4">' + escHtml(text) + '</td></tr>';
+}
+
 // Build a whole <tbody>: a header row per host, followed by that host's rows
-// unless it is collapsed.  `rowsFor` is the page's own row builder.
+// unless it is collapsed; then one group per peer.  `rowsFor` is the page's
+// own row builder.  `opts.peers` is the `peers` array from a `?peers=1`
+// payload and may be absent.
 function groupedRows(table, rows, rowsFor, opts) {
-  if (!rows.length) return null;
+  const peers = opts.peers || [];
+  if (!rows.length && !peers.length) return null;
   const alertRank = (opts.alertRank === null || opts.alertRank === undefined)
     ? DEFAULT_ALERT_RANK : opts.alertRank;
   let html = '';
@@ -306,7 +422,51 @@ function groupedRows(table, rows, rowsFor, opts) {
     html += groupHeaderRow(table, group.host, group.entries, collapsed, opts);
     if (!collapsed) html += rowsFor(group.entries);
   }
+  for (const peer of sortPeers(peers)) {
+    const entries = sortRows(table, peer.entries || []);
+    const collapsed = isPeerCollapsed(table, peer, entries, opts.rankKey, alertRank);
+    html += peerHeaderRow(table, peer, entries, collapsed, opts);
+    if (collapsed) continue;
+    if (!entries.length) {
+      html += peerPlaceholderRow(peer, opts.colspan);
+    } else if (peer.stale) {
+      // Retained from the last good fetch: still worth seeing, but dimmed so
+      // nobody reads a reading from before the outage as current.
+      html += rowsFor(entries).replace(/<tr class="/g, '<tr class="peer-stale ');
+    } else {
+      html += rowsFor(entries);
+    }
+  }
   return html;
+}
+
+// The one-line roll-up under the stat cards: one chip per peer, linking to
+// the same page there.  Hidden when no peers are configured, so a standalone
+// instance looks exactly as it did.
+function renderPeerStrip(peers) {
+  const el = document.getElementById('peer-strip');
+  if (!el) return;
+  if (!peers || !peers.length) { el.hidden = true; el.innerHTML = ''; return; }
+  let html = '<span class="text-muted me-2"><i class="bi bi-diagram-3"></i> Peers:</span>';
+  for (const peer of sortPeers(peers)) {
+    const [cls] = PEER_BADGE[peer.status] || PEER_BADGE.pending;
+    const title = peer.url + (peer.status === 'error' ? ' — ' + (peer.error || 'unreachable') : '');
+    html += '<a class="peer-chip ' + cls + '" href="' +
+            escHtml(peer.url + window.location.pathname) + '" target="_blank" ' +
+            'rel="noopener" title="' + escHtml(title) + '">' +
+            escHtml(peer.label) + ' <small>' + (peer.entries ? peer.entries.length : 0) +
+            '</small></a>';
+  }
+  el.innerHTML = html;
+  el.hidden = false;
+}
+
+// "(5)" for a standalone instance; "(5 local + 12 from 2 peers)" with peers.
+function countLabel(localCount, peers) {
+  if (!peers || !peers.length) return '(' + localCount + ')';
+  const fromPeers = peers.reduce((n, p) => n + (p.entries ? p.entries.length : 0), 0);
+  return '(' + localCount + ' local + ' + fromPeers + ' from ' + peers.length +
+         (peers.length === 1 ? ' peer)' : ' peers)');
 }
 
 // ---- stat cards ------------------------------------------------------

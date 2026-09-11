@@ -2,13 +2,14 @@
 {% import "_macros.html" as m %}
 
 {% block content %}
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
   {{ m.stat_card('watch', 'ok',          'OK',          'ok') }}
   {{ m.stat_card('watch', 'stale',       'STALE',       'stale') }}
   {{ m.stat_card('watch', 'missing',     'MISSING',     'missing') }}
   {{ m.stat_card('watch', 'unmonitored', 'UNMONITORED', 'unmonitored') }}
   {{ m.stat_card('watch', 'total',       'TOTAL',       'total') }}
 </div>
+{{ m.peer_strip() }}
 
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -75,8 +76,8 @@ const WATCH_ACCESSORS = {
 registerTable('files', WATCH_ACCESSORS, 'name');
 registerTable('dirs',  WATCH_ACCESSORS, 'name');
 
+// Rows for one host or peer group; the empty case is handled by groupedRows().
 function watchRows(entries) {
-  if (!entries.length) return null;
   let html = '';
   for (const f of entries) {
     const state = f.watch_state || 'ok';
@@ -112,27 +113,42 @@ function watchRows(entries) {
   return html;
 }
 
+// A peer record narrowed to one kind, so each table gets only its own rows
+// while the header still says how many the peer has of that kind.
+function peersOfKind(peers, kind) {
+  return peers.map(p => Object.assign({}, p,
+    {entries: (p.entries || []).filter(e => e.kind === kind)}));
+}
+
 function renderWatcher(data) {
   const all = data.files || [];
-  renderStatCards('watch', {
+  const peers = data.peers || [];
+  // The server aggregates local + reachable peers; a payload without it (an
+  // older server) falls back to counting what is on the page.
+  renderStatCards('watch', data.aggregate || {
     ok:          all.filter(f => f.watch_state === 'ok').length,
     stale:       all.filter(f => f.watch_state === 'stale').length,
     missing:     all.filter(f => f.watch_state === 'missing').length,
     unmonitored: all.filter(f => f.watch_state === 'unmonitored').length,
     total:       all.length,
   });
+  renderPeerStrip(peers);
 
   for (const [table, kind, colspan, noun] of
        [['files', 'file', 5, 'files'], ['dirs', 'directory', 6, 'directories']]) {
     const entries = all.filter(f => f.kind === kind);
+    const kindPeers = peersOfKind(peers, kind);
     const countEl = document.getElementById(table + '-count');
-    if (countEl) countEl.textContent = '(' + entries.length + ')';
+    if (countEl) countEl.textContent = countLabel(entries.length, kindPeers);
     updateSortIndicators(table);
-    fillTable('tbody-' + table, watchRows(sortRows(table, entries)), colspan,
+    fillTable('tbody-' + table,
+      groupedRows(table, sortRows(table, entries), watchRows,
+        {colspan: colspan, stateKey: 'watch_state', rankKey: 'watch_rank',
+         alertRank: data.alert_rank, peers: kindPeers}), colspan,
       'No ' + noun + ' configured. Add entries to the YAML config file.');
   }
 }
 
-startDashboard('/api/status', renderWatcher);
+startDashboard('/api/status?peers=1', renderWatcher);
 </script>
 {% endblock %}

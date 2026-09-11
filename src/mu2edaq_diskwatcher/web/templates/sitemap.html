@@ -48,6 +48,7 @@
           <li><code><a href="/api/space">/api/space</a></code> — Disk Space feed</li>
           <li><code><a href="/api/sizes">/api/sizes</a></code> — File Sizes feed</li>
           <li><code><a href="/api/entries">/api/entries</a></code> — filtered list</li>
+          <li><code><a href="/api/peers">/api/peers</a></code> — peer connection status</li>
           <li><code><a href="/api/config">/api/config</a></code> — active config</li>
           <li><code><a href="/api/health">/api/health</a></code> — poller liveness</li>
           <li><code><a href="/api/version">/api/version</a></code> — version</li>
@@ -55,6 +56,7 @@
       </div>
       <div class="card-footer text-muted small">
         Full field reference on the <a href="{{ url_for('views.api_docs') }}">API page</a>.
+        Add <code>?peers=1</code> to a list endpoint to include configured peers.
       </div>
     </div>
   </div>

@@ -22,11 +22,13 @@ import sys
 import threading
 
 from . import __version__
-from .config import entries_from_config, load_config
+from .config import entries_from_config, load_config, peers_from_config, peers_from_urls
 from .daemon import daemonize, write_pid_file
 from .discovery import start_responder, stop_responder
+from .peers import peer_loop
 from .poller import do_poll, poll_loop
 from .settings import ENV_PREFIX, get_settings
+from .state import PEERS
 
 #: Config file used when neither --config nor the environment names one.
 DEFAULT_CONFIG = "diskwatcher.yaml"
@@ -75,7 +77,30 @@ def build_parser(defaults) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", default=None,
-        help="Log every remote probe and poll cycle",
+        help="Log every remote probe, poll cycle and peer fetch",
+    )
+    peers = parser.add_argument_group(
+        "peers",
+        "Other diskwatcher instances whose entries are shown on this "
+        "dashboard too.  --peer replaces the peers: list from the config "
+        f"file and ${ENV_PREFIX}PEERS; --no-peers disables federation.",
+    )
+    peers.add_argument(
+        "--peer", action="append", default=None, metavar="URL", dest="peers",
+        help="Peer base URL, e.g. http://mu2e-dl-01:5002 (repeatable; the "
+             "scheme may be omitted)",
+    )
+    peers.add_argument(
+        "--no-peers", action="store_true", default=None,
+        help="Ignore every configured peer",
+    )
+    peers.add_argument(
+        "--peer-timeout", type=float, default=None, metavar="SECONDS",
+        help=f"HTTP timeout per peer fetch (default: {defaults.peer_timeout:g})",
+    )
+    peers.add_argument(
+        "--peer-interval", type=int, default=None, metavar="SECONDS",
+        help="Seconds between peer fetches (default: the poll interval)",
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}",
@@ -106,8 +131,14 @@ def main() -> None:
         daemon        = bool(wcfg["daemon"])       if "daemon"        in wcfg else None,
         pid_file      = wcfg.get("pid_file"),
         log_file      = wcfg.get("log_file"),
+        peer_timeout  = float(wcfg["peer_timeout"]) if "peer_timeout"  in wcfg else None,
+        peer_interval = int(wcfg["peer_interval"])  if "peer_interval" in wcfg else None,
         config_path   = config_path if cfg else None,
     )
+    # The peer list is a layered setting too: the YAML `peers:` list, then
+    # $MU2EDAQ_DISKWATCHER_PEERS, then --peer, each *replacing* the previous.
+    yaml_peers, peer_issues = peers_from_config(cfg)
+    settings.peers = yaml_peers
 
     # ---- layer 3: environment ----
     env_issues = settings.apply_env()
@@ -115,6 +146,14 @@ def main() -> None:
         print(f"[Config] Warning: {issue}", file=sys.stderr)
 
     # ---- layer 4: command line (parsed above; applied last so it wins) ----
+    cli_peers = None
+    if args.no_peers:
+        cli_peers = []
+    elif args.peers:
+        cli_peers, cli_peer_issues = peers_from_urls(args.peers)
+        for issue in cli_peer_issues:
+            print(f"[Config] Warning: {issue}", file=sys.stderr)
+        peer_issues += cli_peer_issues
     settings.apply(
         web_host      = args.host,
         web_port      = args.port,
@@ -124,6 +163,9 @@ def main() -> None:
         pid_file      = args.pid_file,
         log_file      = args.log_file,
         verbose       = args.verbose,
+        peer_timeout  = args.peer_timeout,
+        peer_interval = args.peer_interval,
+        peers         = cli_peers,
         # Re-assert the resolved path: apply_env() would otherwise leave the
         # /config page showing the environment's value even when --config won.
         config_path   = config_path if cfg else None,
@@ -133,10 +175,10 @@ def main() -> None:
     # default_delay, which any of the three layers above may have set.
     entries, issues = entries_from_config(cfg, default_delay=settings.default_delay)
     settings.entries = entries
-    settings.config_issues = env_issues + issues
+    settings.config_issues = env_issues + issues + peer_issues
 
-    if not entries:
-        print("[Config] Warning: no files or paths configured. "
+    if not entries and not settings.peers:
+        print("[Config] Warning: no files, paths or peers configured. "
               "Add entries to the YAML config file.", file=sys.stderr)
 
     # ---- daemonize before starting threads ----
@@ -164,6 +206,19 @@ def main() -> None:
     do_poll()
 
     threading.Thread(target=poll_loop, daemon=True).start()
+
+    # Peers are fetched on their own thread from the start, never
+    # synchronously here: an unreachable peer would otherwise hold up the
+    # web server for a full timeout.  Until the first fetch lands the peer
+    # shows as "connecting" on the dashboards.
+    PEERS.configure(settings.peers)
+    if settings.peers:
+        enabled = [p for p in settings.peers if p.get("enabled", True)]
+        print(f"[Peers]  Federating {len(enabled)} peer(s), every "
+              f"{settings.effective_peer_interval()} s, timeout "
+              f"{settings.peer_timeout:g} s: "
+              + ", ".join(f"{p['label']} <{p['url']}>" for p in enabled))
+        threading.Thread(target=peer_loop, daemon=True).start()
 
     # Imported here so `--version` and `--help` never pay for Flask.
     from .web import create_app

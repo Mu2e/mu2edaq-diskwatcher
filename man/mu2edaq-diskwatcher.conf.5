@@ -1,4 +1,4 @@
-.TH MU2EDAQ\-DISKWATCHER.CONF 5 "July 2026" "mu2edaq-diskwatcher 1.2.0" "Mu2e DAQ Utilities"
+.TH MU2EDAQ\-DISKWATCHER.CONF 5 "September 2026" "mu2edaq-diskwatcher 1.3.0" "Mu2e DAQ Utilities"
 .SH NAME
 mu2edaq\-diskwatcher.conf \- configuration file for mu2edaq\-diskwatcher
 .SH SYNOPSIS
@@ -9,9 +9,9 @@ mu2edaq\-diskwatcher.conf \- configuration file for mu2edaq\-diskwatcher
 .BR mu2edaq\-diskwatcher (1)
 reads a YAML configuration file naming the paths to watch and how to alarm on
 them.
-The file has three top-level keys:
-.BR watcher ", " files " and " paths .
-All three are optional; a file with none of them is valid and simply watches
+The file has four top-level keys:
+.BR watcher ", " files ", " paths " and " peers .
+All four are optional; a file with none of them is valid and simply watches
 nothing.
 .PP
 The file is loaded once at startup.
@@ -73,6 +73,18 @@ which overrides this setting; see
 .TP
 .B log_file
 Where the daemon's standard output and error are appended.
+.TP
+.B peer_timeout
+Seconds allowed for one peer's HTTP round trip, unless the peer entry sets its
+own
+.BR timeout .
+Default:
+.BR 5 .
+.TP
+.B peer_interval
+Seconds between fetches of every peer.
+Default: the value of
+.BR poll_interval .
 .PP
 .nf
 watcher:
@@ -83,6 +95,7 @@ watcher:
   daemon:        false
   pid_file:      "./config/mu2edaq-diskwatcher.pid"
   log_file:      "./config/mu2edaq-diskwatcher.log"
+  peer_timeout:  5
 .fi
 .SH WATCH ENTRIES
 .B files
@@ -389,6 +402,78 @@ The choice is cached per host for the life of the process.
       options:
         - StrictHostKeyChecking=no
 .fi
+.SH THE peers SECTION
+A list of other
+.B mu2edaq\-diskwatcher
+instances whose entries are shown on this instance's dashboards as well.
+Each peer's
+.B /api/state
+is fetched over HTTP every
+.B watcher.peer_interval
+seconds, and its entries appear on the Watcher, Disk Space and File Sizes
+pages under a heading carrying the peer's label, URL, hostname and version.
+The summary cards count local entries plus those of every reachable peer.
+.PP
+An item is a mapping, or a bare URL string equivalent to a mapping with only
+.B url
+set.
+.TP
+.B url
+Base URL of the peer, for example
+.BR http://mu2e\-dl\-01.fnal.gov:5002 .
+Required.
+The scheme may be omitted, in which case
+.B http
+is assumed; a trailing slash is ignored.
+A value that is not an HTTP or HTTPS URL is dropped with a warning.
+.TP
+.B label
+Name shown in the group heading.
+Default: the host and port from the URL.
+.TP
+.B timeout
+Seconds allowed for the HTTP round trip.
+Default:
+.BR watcher.peer_timeout .
+.TP
+.B enabled
+When
+.BR false ,
+the peer is listed on
+.B /config
+but never fetched.
+Default:
+.BR true .
+.PP
+A peer's states are shown exactly as that peer evaluated them against its own
+thresholds; they are not recomputed here.
+Aggregation is one hop: a peer is asked for its own entries only, so two
+instances may list each other without looping.
+A peer whose URL resolves back to this very instance is recognised by its
+.B instance_id
+and refused.
+.PP
+While a peer is unreachable its entries from the last successful fetch remain
+on screen, dimmed, together with the time they were last current, and are
+excluded from the summary counts.
+An unreachable peer does not change this instance's own
+.B /api/health
+status.
+.PP
+The list can be replaced from the environment
+.RB ( MU2EDAQ_DISKWATCHER_PEERS )
+or the command line
+.RB ( \-\-peer ", " \-\-no\-peers );
+see
+.BR mu2edaq\-diskwatcher (1).
+.PP
+.nf
+peers:
+  - url:     http://mu2e-dl-01.fnal.gov:5002
+    label:   "mu2e-dl-01"
+    timeout: 5
+  - mu2e-dl-02.fnal.gov:5002       # bare form; label defaults to host:port
+.fi
 .SH ALARM STATES
 .SS Staleness (the / page)
 .BR ok ", " stale ", " missing ", " unmonitored .
@@ -451,6 +536,10 @@ paths:
       warning:  "2 TiB"
       critical: "500 GiB"
       full:     "50 GiB"
+
+peers:
+  - url:   http://daq-node02.example.com:5002
+    label: "daq-node02"
 .fi
 .SH SEE ALSO
 .BR mu2edaq\-diskwatcher (1),

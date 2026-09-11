@@ -11,9 +11,112 @@ Changes that alter behaviour an operator or an integration depends on are
 called out as **Breaking** or **Compatibility**; anything not so marked is
 additive.
 
-## [Unreleased] — 1.2.0
+## [Unreleased] — 1.3.0
 
-Not yet tagged. On `main` as of commit `6f4bdb6` (2026-07-27).
+Not yet tagged. On branch `feature/peer-federation`.
+
+### Added
+
+- **Peer federation.** A `peers:` list in the YAML names other diskwatcher
+  instances. Each peer's `/api/state` is fetched over HTTP on its own daemon
+  thread, concurrently and with a per-fetch timeout, so a dead peer never
+  delays the local poll or the web server. The peer's entries then appear on
+  the Watcher, Disk Space and File Sizes pages as one collapsible group per
+  peer, after the local host groups, headed by the peer's label, its URL
+  (linking to the same page on the peer), the hostname and version it reports,
+  and how old the data is. The stat cards count local entries plus every
+  reachable peer; a strip under the cards shows one chip per peer.
+
+  Each item takes `url` (required; scheme optional, `http` assumed), and
+  optional `label` (default `host:port`), `timeout` and `enabled`; a bare URL
+  string is accepted. Two `watcher` keys, `peer_timeout` (default 5 s) and
+  `peer_interval` (default: the poll interval), set the defaults. Bad items
+  are dropped with a warning and reported on `/config`, like watch entries.
+
+  Three decisions worth knowing about:
+
+  - *States are the peer's own.* A peer evaluated its thresholds against a
+    filesystem it can see; this instance shows the result and does not
+    recompute it. Recomputing would need the peer's config and the two
+    dashboards would disagree.
+  - *Aggregation is one hop.* A peer is asked for its own entries only (its
+    `/api/state` without `?peers=1`), so two instances may list each other
+    without looping and nothing appears twice. Every instance now publishes a
+    random `instance_id`; a peer whose URL resolves back to this process is
+    recognised by it and refused with a clear error rather than duplicating
+    the local paths under a "remote" heading.
+  - *An outage dims, it does not erase.* While a peer is unreachable its rows
+    from the last good fetch stay on screen, greyed and italic, with the error
+    and how long ago the data was current, and its group is held open. Those
+    rows are excluded from every count and every `aggregate`. A control-room
+    display that blanks a whole node's volumes because one request timed out
+    is worse than one that says "unreachable since 14:02".
+- **`--peer URL` (repeatable), `--no-peers`, `--peer-timeout`,
+  `--peer-interval`**, and the environment variables
+  `MU2EDAQ_DISKWATCHER_PEERS` (comma- or space-separated), `PEER_TIMEOUT`,
+  `PEER_INTERVAL`. The peer list is layered like every other setting, but as
+  a whole: `--peer` replaces `PEERS`, which replaces the file's `peers:`. A
+  `PEERS` value containing one bad URL is ignored entirely, matching the
+  all-or-nothing rule every other override follows.
+- **`?peers=1`** on `/api/status`, `/api/state`, `/api/space`, `/api/sizes`
+  and `/api/entries`. The first four gain `peers` (one record per configured
+  peer: connection details, `status` of `ok`/`error`/`pending`/`disabled`,
+  `error`, fetch timing, `stale`, the peer's entries filtered as the endpoint
+  filters local ones, and their `summary`) and `aggregate` (the endpoint's
+  summary over local plus reachable peers, with `local` and `peers` counts).
+  `/api/entries?peers=1` folds reachable peers' entries into the flat list,
+  each stamped `peer` and `peer_url`, and `&peer=LABEL` keeps one peer's.
+- **`/api/peers`**: connection status of every configured peer, without
+  entries, plus per-peer watch/space/size summaries and a `counts` total.
+- **`hostname` and `instance_id`** on `/api/state` and `/api/version`;
+  `instance_id` and a `peers` count dict on `/api/health`; `peers` and
+  `peer_timeout` on `/api/config`; `alert_rank` on `/api/status` (the Watcher
+  page's default-open threshold, `stale`), all additive.
+- **Peers table on `/config`** with live status, and a peer count on
+  `/about`.
+- **Host grouping on the Watcher page.** `/` now groups its Files and
+  Directories tables by host the way `/space` and `/sizes` already did, which
+  is what gives the peer groups a place to go. A group opens by default once
+  something in it is `stale` or `missing`.
+- **`tests/test_peers.py`**, driving the client against a real loopback HTTP
+  server: refused, timed out, HTTP error, not JSON, not a diskwatcher payload,
+  oversized, self-reference, retained data across a failure and recovery,
+  record-shape parity across every state. `tests/test_web.py` gains a
+  `federated` fixture and locks the `?peers=1` contract, including that the
+  default payloads are byte-for-byte local-only.
+
+### Fixed
+
+- **The start and stop scripts could mistake any Python process for the
+  daemon if its interpreter path contained the checkout's name.** The
+  process-table matcher looked for `mu2edaq-diskwatcher` anywhere on the
+  command line, and the checkout is called exactly that, so
+  `../mu2edaq-diskwatcher/venv/bin/python -m pytest` run from a git worktree
+  matched on its executable alone and was SIGTERMed by the stop script it was
+  testing. The name is now looked for in the arguments only, and the
+  interpreter is checked separately. Two tests in `tests/test_scripts.py`
+  lock both directions: a `python` reached through such a path is left alone,
+  and the three genuine spellings are still stopped.
+
+### Compatibility
+
+- Without `?peers=1` every JSON payload is unchanged apart from added keys:
+  `alert_rank` on `/api/status`; `hostname`, `instance_id` on `/api/state`
+  and `/api/version`; `peers`, `instance_id` on `/api/health`; `peers`,
+  `peer_timeout`, `peer_interval` on `/api/config`. Nothing was removed or
+  retyped. `/api/status` counts (`total`, `ok`, `stale`) stay local-only even
+  with the flag.
+- An instance with no `peers:` behaves and renders exactly as before, except
+  that the Watcher page now shows a `local` group header row like the other
+  two dashboards.
+- **`/api/health` `status` is unaffected by peers.** An unreachable peer is a
+  fact about that peer, answered by its own `/api/health`; it is reported here
+  under `peers` for anyone who wants to alarm on it.
+
+## [t01.00.00] — 1.2.0 — 2026-07-28
+
+Tagged `t00.04.00` at commit `1b9e60c` and `t01.00.00` at `7902c9d` (the host
+grouping landed between the two).
 
 ### Added
 
@@ -63,9 +166,9 @@ Not yet tagged. On `main` as of commit `6f4bdb6` (2026-07-27).
   evaluators, the config loader, poller state-key parity, SSH command
   construction, every route, the CLI, and the start/stop scripts driven against
   real processes.
-- **Host grouping on `/space` and `/sizes`.** Rows are grouped under a header
-  per host — local paths first, then remote hosts alphabetically — and each
-  group collapses on click. A collapsed group still shows one badge per alarm
+- **Host grouping on `/space` and `/sizes`** (`t01.00.00` only). Rows are
+  grouped under a header per host — local paths first, then remote hosts
+  alphabetically — and each group collapses on click. A collapsed group still shows one badge per alarm
   state inside it, so hiding a host never hides a problem. Sorting applies
   within each group.
 

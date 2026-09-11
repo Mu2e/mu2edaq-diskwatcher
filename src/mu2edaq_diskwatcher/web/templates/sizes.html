@@ -2,7 +2,7 @@
 {% import "_macros.html" as m %}
 
 {% block content %}
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
   {{ m.stat_card('size', 'good',        'GOOD',        'good') }}
   {{ m.stat_card('size', 'empty',       'EMPTY',       'empty') }}
   {{ m.stat_card('size', 'warning',     'WARNING',     'warning') }}
@@ -11,6 +11,7 @@
   {{ m.stat_card('size', 'unavailable', 'UNAVAILABLE', 'unavailable') }}
   {{ m.stat_card('size', 'total',       'TOTAL',       'total') }}
 </div>
+{{ m.peer_strip() }}
 
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -46,7 +47,9 @@
   Thresholds name how large a file may get, so they ascend:
   <code>warning &lt; critical &lt; full</code>. A zero-length file is
   <strong>EMPTY</strong> regardless of its thresholds, unless the entry sets
-  <code>allow_empty: true</code>.
+  <code>allow_empty: true</code>. Rows under a peer heading were evaluated by
+  that peer against its own thresholds; the cards count local entries plus
+  every reachable peer.
 </p>
 {% endblock %}
 
@@ -60,7 +63,7 @@ registerTable('sizes', {
   mtime:  r => r.mtime,
 }, 'status');
 
-// Rows for one host group; the empty case is handled by groupedRows().
+// Rows for one host or peer group; the empty case is handled by groupedRows().
 function sizeRows(entries) {
   let html = '';
   for (const e of entries) {
@@ -92,19 +95,21 @@ function sizeRows(entries) {
 }
 
 function renderSizes(data) {
-  renderStatCards('size', data.summary);
+  const peers = data.peers || [];
+  renderStatCards('size', data.aggregate || data.summary);
+  renderPeerStrip(peers);
   const entries = data.entries || [];
   const countEl = document.getElementById('size-count');
-  if (countEl) countEl.textContent = '(' + entries.length + ')';
+  if (countEl) countEl.textContent = countLabel(entries.length, peers);
   updateSortIndicators('sizes');
   fillTable('tbody-sizes',
     groupedRows('sizes', sortRows('sizes', entries), sizeRows,
       {colspan: 7, stateKey: 'size_state', rankKey: 'size_rank',
-       alertRank: data.alert_rank}), 7,
+       alertRank: data.alert_rank, peers: peers}), 7,
     'No files are monitored for size. Add a size: block to an entry under ' +
     'files: in the YAML config file.');
 }
 
-startDashboard('/api/sizes', renderSizes);
+startDashboard('/api/sizes?peers=1', renderSizes);
 </script>
 {% endblock %}

@@ -45,6 +45,13 @@
 </div>
 {% endmacro %}
 
+{# One-line roll-up of peer connections under the stat cards.  Filled by
+   renderPeerStrip() in diskwatcher.js; stays hidden when there are no peers,
+   so a standalone instance renders exactly as before. #}
+{% macro peer_strip() %}
+<div id="peer-strip" class="mb-3 small" hidden></div>
+{% endmacro %}
+
 {# Label / path cell, server-side twin of the one in diskwatcher.js. #}
 {% macro path_cell(entry) %}
 {% if entry.label and entry.label != entry.path %}

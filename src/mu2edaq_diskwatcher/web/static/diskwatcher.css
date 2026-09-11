@@ -78,6 +78,37 @@ tr.group-row td {
 .group-chips { margin-left: .65rem; }
 .group-chips .badge { font-size: .68em; vertical-align: middle; }
 
+/* ---- peer groups ------------------------------------------------------ */
+/* A peer is another diskwatcher instance; its header is tinted blue so it
+   reads as "elsewhere" at a glance, and red-edged while unreachable. */
+tr.group-row.peer-row td {
+  background-color: #e4ecf7 !important;
+  border-top: 2px solid #b6c8e4;
+}
+tr.group-row.peer-row.peer-error td   { border-top-color: #dc3545; }
+tr.group-row.peer-row.peer-pending td,
+tr.group-row.peer-row.peer-disabled td { background-color: #eceff2 !important; }
+
+.peer-status { font-size: .68em; vertical-align: middle; margin-left: .5rem; }
+.group-details { margin-left: .6rem; font-size: .78em; color: #6c757d; }
+.group-details .group-url { color: #495057; text-decoration: none; font-family: monospace; }
+.group-details .group-url:hover { text-decoration: underline; }
+.group-sep { margin: 0 .4rem; }
+
+/* Rows retained from a peer's last good fetch, shown while it is unreachable. */
+tr.peer-stale td { opacity: .55; font-style: italic; }
+tr.peer-placeholder td { background: #f8f9fa; }
+
+/* The roll-up line under the stat cards. */
+#peer-strip { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.peer-chip {
+  display: inline-block; padding: .1rem .5rem; border-radius: 1rem;
+  color: #fff; font-size: .8em; text-decoration: none; line-height: 1.5;
+}
+.peer-chip:hover { color: #fff; filter: brightness(1.1); text-decoration: underline; }
+.peer-chip.bg-secondary { color: #fff; }
+.peer-chip small { opacity: .8; }
+
 /* ---- misc ------------------------------------------------------------ */
 .path-cell { font-family: monospace; font-size: 0.85em; word-break: break-all; }
 .sort-th   { cursor: pointer; user-select: none; white-space: nowrap; }

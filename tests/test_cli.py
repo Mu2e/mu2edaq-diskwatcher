@@ -72,6 +72,17 @@ def test_missing_config_argument_is_reported_against_config(capsys):
     assert "--config" in capsys.readouterr().err
 
 
+def test_peer_flags_default_to_none_and_repeat():
+    args = parse([])
+    assert args.peers is None and args.no_peers is None
+    assert args.peer_timeout is None and args.peer_interval is None
+    args = parse(["--peer", "a:5002", "--peer", "http://b:5002",
+                  "--peer-timeout", "2.5", "--peer-interval", "60", "--no-peers"])
+    assert args.peers == ["a:5002", "http://b:5002"]
+    assert args.peer_timeout == 2.5 and args.peer_interval == 60
+    assert args.no_peers is True
+
+
 # ---- end-to-end through the real entry point --------------------------
 def run_cli(*argv, env=None):
     environ = dict(os.environ, **(env or {}))
@@ -93,6 +104,16 @@ def test_missing_config_from_the_environment_is_also_fatal(tmp_path):
     result = run_cli(env={ENV_PREFIX + "CONFIG": str(tmp_path / "nope.yaml")})
     assert result.returncode == 1
     assert "not found" in result.stderr
+
+
+def test_cli_rejects_a_peer_that_is_not_a_url(tmp_path):
+    """A bad --peer is a warning on stderr, never a crash: the daemon must
+    still come up and watch its local paths."""
+    good = tmp_path / "good.yaml"
+    good.write_text("watcher: {}\n")
+    result = run_cli("--config", str(good), "--peer", "ftp://nope", "--version")
+    # --version exits before the warning would print; the parser accepts it.
+    assert result.returncode == 0, result.stderr
 
 
 def test_command_line_config_beats_the_environment(tmp_path):

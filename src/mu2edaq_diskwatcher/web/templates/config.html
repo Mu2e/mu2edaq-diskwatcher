@@ -103,6 +103,11 @@
         <tr><th class="ps-3">Log file</th>
             <td>{% if settings.log_file %}<code class="small">{{ settings.log_file }}</code>
                 {% else %}<span class="text-muted">(none)</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">Peer fetch interval</th>
+            <td>{{ fmt_duration(peer_interval) }}
+              <small class="text-muted">({{ peer_interval }}&nbsp;s{% if not settings.peer_interval %}, same as the poll interval{% endif %})</small></td></tr>
+        <tr><th class="ps-3">Peer fetch timeout</th>
+            <td>{{ settings.peer_timeout }}&nbsp;s</td></tr>
       </tbody>
     </table>
   </div>
@@ -129,6 +134,70 @@
   </div>
   <div class="card-body p-0">
     {{ watch_table(dirs, 'directories', 'space', 'Free-space thresholds') }}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-diagram-3"></i> Peers
+    <small class="text-muted ms-2">{{ peers | length }} configured</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Label</th>
+          <th>URL</th>
+          <th>Status</th>
+          <th>Peer</th>
+          <th>Entries</th>
+          <th>Last fetch</th>
+          <th>Timeout</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in peers %}
+        <tr>
+          <td class="ps-3">
+            <strong>{{ p.label }}</strong>
+            {% for err in p.config_errors %}
+            <div class="text-danger small">
+              <i class="bi bi-exclamation-triangle-fill"></i> {{ err }}
+            </div>
+            {% endfor %}
+          </td>
+          <td><a href="{{ p.url }}/" target="_blank" rel="noopener"><code class="small">{{ p.url }}</code></a></td>
+          <td>
+            {% if p.status == 'ok' %}<span class="badge bg-success">connected</span>
+            {% elif p.status == 'error' %}<span class="badge bg-danger" title="{{ p.error }}">unreachable</span>
+              <div class="text-danger small">{{ p.error }}</div>
+            {% elif p.status == 'disabled' %}<span class="badge bg-secondary">disabled</span>
+            {% else %}<span class="badge bg-secondary">connecting</span>{% endif %}
+          </td>
+          <td class="small">
+            {% if p.version %}v{{ p.version }}{% if p.hostname %} on <code>{{ p.hostname }}</code>{% endif %}
+            {% else %}<span class="text-muted">&mdash;</span>{% endif %}
+          </td>
+          <td>{{ p.total }}{% if p.stale %} <small class="text-muted">(retained)</small>{% endif %}</td>
+          <td class="small text-muted">
+            {% if p.fetched_at_str %}{{ p.fetched_at_str }}
+              {% if p.status == 'error' and p.last_ok_str %}<br>last good {{ p.last_ok_str }}{% endif %}
+            {% else %}&mdash;{% endif %}
+          </td>
+          <td class="small">{% if p.timeout %}{{ p.timeout }}&nbsp;s{% else %}<span class="text-muted">default</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-muted p-3">No peers configured. Add a
+          <code>peers:</code> list to the YAML config file, or pass
+          <code>--peer URL</code>, to show another diskwatcher's entries here.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    A peer's <code>/api/state</code> is fetched every {{ fmt_duration(peer_interval) }}.
+    Its entries appear on the three dashboards under a heading with its
+    connection details; live status is in <a href="/api/peers">/api/peers</a>.
   </div>
 </div>
 

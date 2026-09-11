@@ -27,13 +27,59 @@
         {{ ep('/api/entries', 'Filtered entry list. Query parameters: kind=file|directory,
               monitored=space|size, state=GOOD|WARNING|CRITICAL|FULL|EMPTY|MISSING|
               UNKNOWN|ok|stale|unmonitored.') }}
-        {{ ep('/api/config', 'Active settings, the parsed watch list, and any
-              configuration problems detected at startup.') }}
+        {{ ep('/api/peers', 'Connection status of every configured peer: label,
+              URL, status, the version and hostname it reports, fetch timing, and
+              per-peer watch/space/size summaries. No entries.') }}
+        {{ ep('/api/config', 'Active settings, the parsed watch list, the peer
+              list, and any configuration problems detected at startup.') }}
         {{ ep('/api/health', 'Poller liveness. status is "degraded" when the last
               poll is older than three intervals or the config has problems.') }}
         {{ ep('/api/version', 'Application name and version.') }}
       </tbody>
     </table>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header"><i class="bi bi-diagram-3"></i> Peers: <code>?peers=1</code></div>
+  <div class="card-body">
+    <p>
+      Every list endpoint returns this instance's own entries by default.
+      Adding <code>?peers=1</code> to <code>/api/status</code>,
+      <code>/api/state</code>, <code>/api/space</code>, <code>/api/sizes</code>
+      or <code>/api/entries</code> brings in the diskwatcher instances named
+      under <code>peers:</code> in the configuration.
+    </p>
+    <table class="table table-sm mb-2">
+      <tbody>
+        <tr><td class="ps-3" style="width:28%"><code>peers</code></td>
+            <td class="small">One record per configured peer: <code>label</code>,
+              <code>url</code>, <code>status</code> (<code>ok</code>,
+              <code>error</code>, <code>pending</code>, <code>disabled</code>),
+              <code>error</code>, <code>version</code>, <code>hostname</code>,
+              <code>fetched_at</code>/<code>fetched_age_s</code>,
+              <code>last_ok</code>/<code>last_ok_age_s</code>, <code>stale</code>,
+              that peer's <code>entries</code> filtered the way the endpoint filters
+              local ones, and a <code>summary</code> of just those entries.</td></tr>
+        <tr><td class="ps-3"><code>aggregate</code></td>
+            <td class="small">The endpoint's summary recomputed over local entries
+              plus every peer whose <code>status</code> is <code>ok</code>, with
+              <code>local</code> (local count) and <code>peers</code> (connection
+              counts). Entries retained from an unreachable peer are shown under
+              it with <code>stale: true</code> but are not counted here.</td></tr>
+        <tr><td class="ps-3"><code>peer</code>, <code>peer_url</code></td>
+            <td class="small">Added to every entry that came from a peer.
+              <code>/api/entries?peers=1</code> folds peer entries into the flat
+              list; <code>&amp;peer=LABEL</code> keeps only one peer's.</td></tr>
+      </tbody>
+    </table>
+    <p class="mb-0 small">
+      Federation is one hop: a peer is asked for its own entries only, so two
+      instances may list each other without looping, and a peer's states are
+      shown as it evaluated them, not re-derived here. An instance recognises
+      itself by <code>instance_id</code> and refuses a peer URL that resolves
+      back to it.
+    </p>
   </div>
 </div>
 
@@ -127,7 +173,15 @@ curl -s localhost:{{ settings_port }}/api/space \
 curl -s "localhost:{{ settings_port }}/api/entries?state=EMPTY"
 
 # is the poller alive?
-curl -s localhost:{{ settings_port }}/api/health | python3 -m json.tool</pre>
+curl -s localhost:{{ settings_port }}/api/health | python3 -m json.tool
+
+# which peers are unreachable?
+curl -s localhost:{{ settings_port }}/api/peers \
+  | python3 -c 'import json,sys; print([p["label"] for p in json.load(sys.stdin)["peers"]
+                if p["status"] != "ok"])'
+
+# every CRITICAL volume here or on any peer
+curl -s "localhost:{{ settings_port }}/api/entries?peers=1&amp;monitored=space&amp;state=CRITICAL"</pre>
   </div>
 </div>
 {% endblock %}

@@ -15,6 +15,9 @@
 #   size:    the size of a file                      (files: entries only)
 #
 # Each appears on its own dashboard page: /, /space and /sizes.
+#
+# A fourth section, "peers:", names other diskwatcher instances whose entries
+# are fetched over HTTP and shown on the same pages under their own headings.
 
 watcher:
   web_host:      "0.0.0.0"   # Bind address for the Flask web server
@@ -27,6 +30,36 @@ watcher:
   # start-mu2edaq-diskwatcher.sh passes --pid-file ./diskwatcher.pid, which
   # overrides pid_file above; it also consults the process table, so it still
   # finds and stops a running copy whichever PID file was used.
+  peer_timeout:  5           # Seconds allowed per peer HTTP fetch (see "peers" below)
+  #peer_interval: 30         # Seconds between peer fetches; default: poll_interval
+
+
+# ---------------------------------------------------------------------------
+# Peers — other diskwatcher instances to aggregate
+# ---------------------------------------------------------------------------
+# Each peer's /api/state is fetched every peer_interval seconds and its entries
+# appear on the Watcher, Disk Space and File Sizes pages grouped under a
+# heading carrying the peer's label, URL, hostname and version.  The summary
+# cards count local entries plus every reachable peer.
+#
+# Only "url" is required.  The scheme may be omitted (http is assumed) and a
+# bare string is accepted in place of a mapping.  Aggregation is one hop: a
+# peer's own peers are not fetched, so two instances may list each other.  A
+# peer that resolves back to this very instance is refused.
+#
+# While a peer is unreachable its last good entries stay on screen, dimmed,
+# with the time they were last current; they are not counted in the cards.
+#
+# The list can be replaced from the environment or the command line:
+#     MU2EDAQ_DISKWATCHER_PEERS="dl-01:5002 dl-02:5002"
+#     --peer dl-01:5002 --peer http://dl-02:5002      (--no-peers disables)
+peers: []
+#peers:
+#  - url:     http://mu2e-dl-01.fnal.gov:5002
+#    label:   "mu2e-dl-01"        # shown in the group heading; default: host:port
+#    timeout: 5                   # seconds; default: watcher.peer_timeout
+#    enabled: true                # false lists the peer on /config but never fetches it
+#  - mu2e-dl-02.fnal.gov:5002     # bare URL form
 
 
 # ---------------------------------------------------------------------------

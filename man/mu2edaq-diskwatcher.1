@@ -1,4 +1,4 @@
-.TH MU2EDAQ\-DISKWATCHER 1 "July 2026" "mu2edaq-diskwatcher 1.2.0" "Mu2e DAQ Utilities"
+.TH MU2EDAQ\-DISKWATCHER 1 "September 2026" "mu2edaq-diskwatcher 1.3.0" "Mu2e DAQ Utilities"
 .SH NAME
 mu2edaq\-diskwatcher \- file modification-time, free-space and file-size monitor
 with embedded web dashboard
@@ -12,6 +12,10 @@ with embedded web dashboard
 [\fB\-\-daemon\fR]
 [\fB\-\-pid\-file\fR \fIFILE\fR]
 [\fB\-\-log\-file\fR \fIFILE\fR]
+[\fB\-\-peer\fR \fIURL\fR ...]
+[\fB\-\-no\-peers\fR]
+[\fB\-\-peer\-timeout\fR \fISECONDS\fR]
+[\fB\-\-peer\-interval\fR \fISECONDS\fR]
 [\fB\-\-verbose\fR]
 [\fB\-\-version\fR]
 [\fB\-h\fR]
@@ -56,6 +60,16 @@ A single SSH round trip per entry retrieves the modification time, the size,
 and (for directories) the filesystem usage.
 All entries are polled concurrently using a thread pool so that a slow or
 unreachable host does not delay the local checks.
+.PP
+Several instances can be federated.
+A
+.B peers
+list names other diskwatchers whose
+.B /api/state
+is fetched over HTTP; their entries appear on this instance's dashboards
+grouped under each peer's connection details.
+See
+.BR PEERS .
 .PP
 An embedded Flask web server serves a Bootstrap dashboard at
 .BR http://\fIhost\fR:\fIport\fR/ .
@@ -133,8 +147,37 @@ Redirect the daemon's standard output and standard error to
 opened in append mode.
 Without this, daemon output is discarded.
 .TP
+.BR \-\-peer " " \fIURL\fR
+Add a peer diskwatcher to aggregate; may be repeated.
+The scheme may be omitted
+.RB ( dl\-01:5002 ).
+When given at all, the command-line list
+.I replaces
+the
+.B peers
+list from the configuration file and from
+.BR MU2EDAQ_DISKWATCHER_PEERS .
+A value that is not an HTTP(S) URL is reported and skipped.
+.TP
+.B \-\-no\-peers
+Ignore every configured peer.
+.TP
+.BR \-\-peer\-timeout " " \fISECONDS\fR
+HTTP timeout per peer fetch.
+Overrides
+.BR watcher.peer_timeout .
+Default:
+.BR 5 .
+.TP
+.BR \-\-peer\-interval " " \fISECONDS\fR
+Seconds between peer fetches.
+Overrides
+.BR watcher.peer_interval .
+Default: the poll interval.
+.TP
 .BR \-v ", " \-\-verbose
-Log additional detail about remote probes and poll cycles.
+Log additional detail about remote probes, poll cycles and peer fetches.
+Without it, one line is logged each time a peer's connection state changes.
 .TP
 .B \-\-version
 Print the version and exit.
@@ -189,6 +232,20 @@ Daemon log file.
 .TP
 .B MU2EDAQ_DISKWATCHER_VERBOSE
 Verbose logging.
+.TP
+.B MU2EDAQ_DISKWATCHER_PEERS
+Peer URLs separated by commas or whitespace, replacing the configuration
+file's
+.B peers
+list.
+If any one of them is not an HTTP(S) URL the whole variable is reported and
+ignored.
+.TP
+.B MU2EDAQ_DISKWATCHER_PEER_TIMEOUT
+Seconds per peer fetch.
+.TP
+.B MU2EDAQ_DISKWATCHER_PEER_INTERVAL
+Seconds between peer fetches.
 .PP
 The start and stop scripts additionally read
 .B CRS_PORT_HTTP
@@ -333,6 +390,56 @@ A block containing only
 .B allow_empty: false
 and no thresholds is valid and useful: it means "alarm if this file is ever
 zero bytes".
+.SH PEERS
+A
+.B peers
+list in the configuration file (or
+.BR \-\-peer )
+names other diskwatcher instances.
+A background thread fetches each peer's
+.B /api/state
+every
+.B peer_interval
+seconds, concurrently, with a per-fetch timeout, so a slow or dead peer never
+delays the local poll or the web server.
+The peer's entries then appear on
+.BR / ", " /space " and " /sizes
+as one collapsible group per peer, after the local host groups, headed by the
+peer's label, its URL (linking to the same page there), the hostname and
+version it reports, and the age of the data.
+The summary cards count local entries plus those of every reachable peer.
+.PP
+Three properties of the design matter to an operator:
+.TP
+.B States are the peer's own.
+The peer evaluated its thresholds against a filesystem it can see; this
+instance shows the result and does not recompute it.
+.TP
+.B Aggregation is one hop.
+A peer is asked for its own entries only, so two instances may list each other
+and nothing is shown twice.
+A peer whose URL turns out to be this very process is recognised by its
+.B instance_id
+and refused.
+.TP
+.B An outage dims, it does not erase.
+While a peer is unreachable, its entries from the last good fetch stay on
+screen dimmed, with the error and the time they were last current, and its
+group is held open.
+Those entries are excluded from the summary cards and from every
+.B aggregate
+in the JSON API.
+An unreachable peer is reported in
+.B /api/health
+under
+.B peers
+but does not change this instance's own
+.BR status .
+.PP
+Every JSON list endpoint returns local entries only unless
+.B ?peers=1
+is added; see
+.BR "JSON endpoints" .
 .SH DAEMON MODE
 With
 .BR \-\-daemon ,
@@ -434,15 +541,20 @@ is Linux-only; where
 is unavailable, process-table candidates are skipped rather than killed on a
 guess, and the PID-file path continues to work.
 .SH CONFIGURATION FILE
-The configuration file has three top-level keys:
-.BR watcher ", " files " and " paths .
+The configuration file has four top-level keys:
+.BR watcher ", " files ", " paths " and " peers .
 This section summarises the schema; see
 .BR mu2edaq\-diskwatcher.conf (5)
 for the complete reference.
 .SS watcher
 Server settings:
 .BR web_host ", " web_port ", " poll_interval ", " default_delay ", " daemon ", "
-.BR pid_file ", " log_file .
+.BR pid_file ", " log_file ", " peer_timeout ", " peer_interval .
+.SS peers
+A list of peer diskwatchers.
+Each entry accepts
+.BR url " (required), " label ", " timeout " and " enabled ,
+or is a bare URL.
 .SS files
 A list of files to watch.
 Each entry accepts
@@ -532,6 +644,11 @@ paths:
       warning:  "2 TiB"
       critical: "500 GiB"
       full:     "50 GiB"
+
+peers:
+  # another diskwatcher whose entries are shown here too
+  - url:   http://daq-node02.example.com:5002
+    label: "daq-node02"
 .fi
 .SH WEB ENDPOINTS
 .SS HTML pages
@@ -597,8 +714,18 @@ Query parameters:
 .BR monitored = space | size ,
 .BR state =\fISTATE\fR.
 .TP
+.B /api/peers
+Connection status of every configured peer, without entries: label, URL,
+.BR status " (" ok ", " error ", " pending " or " disabled ),
+.BR error ,
+the version and hostname the peer reports, fetch timing, and per-peer watch,
+space and size summaries.
+.B counts
+totals the connection states.
+.TP
 .B /api/config
-Active settings, the parsed watch list, and any configuration problems.
+Active settings, the parsed watch list, the peer list, and any configuration
+problems.
 .TP
 .B /api/health
 Poller liveness.
@@ -607,9 +734,37 @@ is
 .B degraded
 when the last poll is older than three poll intervals, or the configuration has
 problems.
+.B peers
+carries the connection counts but does not affect
+.BR status .
 .TP
 .B /api/version
-Application name and version.
+Application name, version,
+.B instance_id
+and hostname.
+.SS The ?peers=1 query parameter
+.BR /api/status ", " /api/state ", " /api/space ", " /api/sizes " and "
+.B /api/entries
+return this instance's own entries by default.
+With
+.B ?peers=1
+the first four add
+.BR peers ,
+one record per configured peer holding its connection details and its entries
+filtered the way the endpoint filters local ones, plus
+.BR aggregate ,
+the endpoint's summary recomputed over local entries and every peer whose
+.B status
+is
+.BR ok .
+Entries retained from an unreachable peer are present under it with
+.B stale
+true but are not counted.
+.B /api/entries?peers=1
+folds reachable peers' entries into the flat list, each stamped with
+.BR peer " and " peer_url ;
+.B &peer=LABEL
+keeps one peer's.
 .SS Per-entry fields
 Identity:
 .BR path ", " label ", " kind ", " remote ", " ssh_host .
@@ -635,6 +790,9 @@ Size alarm:
 .PP
 Configuration:
 .BR config_errors .
+.PP
+Origin (entries from a peer only):
+.BR peer ", " peer_url .
 .PP
 The
 .B *_rank
@@ -744,6 +902,27 @@ Check that the poller is alive, for use in a monitoring script:
 .nf
     test "$(curl \-fsS localhost:5002/api/health | \\
         python3 \-c 'import json,sys; print(json.load(sys.stdin)["status"])')" = ok
+.fi
+.PP
+Show two other nodes' entries on this dashboard as well, without editing the
+configuration file:
+.PP
+.nf
+    mu2edaq\-diskwatcher \-c watch.yaml \-\-peer mu2e\-dl\-01:5002 \-\-peer mu2e\-dl\-02:5002
+.fi
+.PP
+List the peers that are currently unreachable:
+.PP
+.nf
+    curl \-s localhost:5002/api/peers | python3 \-c \\
+      'import json,sys; print([p["label"] for p in json.load(sys.stdin)["peers"]
+       if p["status"] != "ok"])'
+.fi
+.PP
+Every CRITICAL volume here or on any reachable peer:
+.PP
+.nf
+    curl \-s "localhost:5002/api/entries?peers=1&monitored=space&state=CRITICAL"
 .fi
 .SH EXIT STATUS
 .TP

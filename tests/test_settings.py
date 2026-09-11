@@ -62,5 +62,45 @@ def test_unset_env_leaves_settings_alone():
 
 def test_as_dict_excludes_bulk_fields():
     keys = set(reset_settings().as_dict())
-    assert "web_port" in keys
+    assert "web_port" in keys and "peer_timeout" in keys
     assert "entries" not in keys and "config_issues" not in keys
+    assert "peers" not in keys
+
+
+# ------------------------------------------------------------------- peers
+def test_env_peers_accept_commas_and_whitespace():
+    settings = reset_settings()
+    issues = settings.apply_env({ENV_PREFIX + "PEERS":
+                                 "http://a:5002, b:5002 https://c/"})
+    assert issues == []
+    assert [p["url"] for p in settings.peers] == \
+           ["http://a:5002", "http://b:5002", "https://c"]
+
+
+def test_env_peers_replace_the_config_files_list():
+    settings = reset_settings()
+    settings.peers = [{"url": "http://from-yaml:1", "label": "y", "timeout": None,
+                       "enabled": True, "config_errors": []}]
+    settings.apply_env({ENV_PREFIX + "PEERS": "http://from-env:1"})
+    assert [p["url"] for p in settings.peers] == ["http://from-env:1"]
+
+
+def test_bad_env_peer_is_reported_and_the_variable_ignored():
+    settings = reset_settings()
+    issues = settings.apply_env({ENV_PREFIX + "PEERS": "http://ok:1 ftp://bad"})
+    assert len(issues) == 1 and "ftp://bad" in issues[0]
+    assert settings.peers == []          # all-or-nothing, like every other override
+
+
+def test_env_peer_timeout_and_interval():
+    settings = reset_settings()
+    assert settings.apply_env({ENV_PREFIX + "PEER_TIMEOUT": "2.5",
+                               ENV_PREFIX + "PEER_INTERVAL": "60"}) == []
+    assert settings.peer_timeout == 2.5 and settings.peer_interval == 60
+
+
+def test_peer_interval_falls_back_to_the_poll_interval():
+    settings = reset_settings(poll_interval=45)
+    assert settings.effective_peer_interval() == 45
+    settings.peer_interval = 10
+    assert settings.effective_peer_interval() == 10

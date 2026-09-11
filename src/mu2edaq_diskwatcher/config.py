@@ -6,7 +6,8 @@ running on a partly bad config.  Problems are collected into a list of strings
 """
 
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -14,6 +15,8 @@ from .thresholds import Threshold, ThresholdError, check_order, parse_size_thres
 
 #: Keys accepted on a `files:` / `paths:` entry.
 ENTRY_KEYS = {"path", "delay", "label", "ssh", "space", "size"}
+#: Keys accepted on a `peers:` entry.
+PEER_KEYS = {"url", "label", "timeout", "enabled"}
 #: Keys accepted inside a `space:` block.
 SPACE_KEYS = {"warning", "critical", "full"}
 #: Keys accepted inside a `size:` block.  `max:` is a synonym for `full:`,
@@ -240,3 +243,125 @@ def limits_as_strings(limits: Optional[Dict[str, Optional[Threshold]]]) -> Optio
     if limits is None:
         return None
     return {level: (t.raw if t is not None else None) for level, t in limits.items()}
+
+
+# ---------------------------------------------------------------------------
+# Peers — other diskwatcher instances whose entries are shown here too
+# ---------------------------------------------------------------------------
+def normalise_peer_url(raw: str) -> Optional[str]:
+    """``"node:5002"`` -> ``"http://node:5002"``; ``None`` if not an HTTP(S) URL.
+
+    A bare ``host:port`` is the way an operator writes it on a command line, so
+    the scheme is optional.  A trailing slash is dropped so the same instance
+    written two ways is one peer, not two.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if "://" not in text:
+        text = "http://" + text
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None
+    if parts.query or parts.fragment:
+        return None
+    return text.rstrip("/")
+
+
+def _peer_from_item(item, where: str, issues: List[str]) -> Optional[dict]:
+    """Validate one ``peers:`` list item; ``None`` (with an issue) if unusable."""
+    if isinstance(item, str):
+        item = {"url": item}
+    if not isinstance(item, dict):
+        issues.append(f"{where}: entry must be a URL or a mapping; ignored")
+        return None
+
+    raw_url = item.get("url")
+    if not raw_url:
+        issues.append(f"{where}: entry with no url:; ignored")
+        return None
+    url = normalise_peer_url(raw_url)
+    if url is None:
+        issues.append(f"{where}: {raw_url!r} is not an http(s) URL; ignored")
+        return None
+    where = f"[peers {url}]"
+
+    errors: List[str] = []
+    for key in item:
+        if key not in PEER_KEYS:
+            errors.append(f"{where}: unknown key {key!r}; ignored")
+
+    timeout = None
+    if item.get("timeout") is not None:
+        try:
+            timeout = float(item["timeout"])
+            if timeout <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append(f"{where}: timeout: {item['timeout']!r} is not a "
+                          f"positive number; using the default")
+            timeout = None
+
+    issues.extend(errors)
+    return {
+        "url":           url,
+        "label":         str(item.get("label") or urlsplit(url).netloc),
+        "timeout":       timeout,                # None -> settings.peer_timeout
+        "enabled":       bool(item.get("enabled", True)),
+        "config_errors": errors,
+    }
+
+
+def _dedupe_peers(peers: List[dict], issues: List[str]) -> List[dict]:
+    seen = set()
+    out = []
+    for peer in peers:
+        if peer["url"] in seen:
+            issues.append(f"[peers {peer['url']}]: listed more than once; "
+                          f"keeping the first")
+            continue
+        seen.add(peer["url"])
+        out.append(peer)
+    return out
+
+
+def peers_from_config(cfg: dict) -> Tuple[List[dict], List[str]]:
+    """Build the peer list from the ``peers`` top-level key, plus any problems.
+
+    Each item is a mapping with ``url`` (required), and optional ``label``,
+    ``timeout`` and ``enabled``; or a bare URL string.  As with watch entries,
+    a bad item is dropped with a warning and the rest survive.
+    """
+    issues: List[str] = []
+    raw = cfg.get("peers")
+    if raw is None:
+        return [], issues
+    if not isinstance(raw, list):
+        issues.append("[peers] must be a list of URLs or mappings; ignored")
+        _report(issues)
+        return [], issues
+
+    peers = []
+    for index, item in enumerate(raw):
+        peer = _peer_from_item(item, f"[peers #{index + 1}]", issues)
+        if peer is not None:
+            peers.append(peer)
+    peers = _dedupe_peers(peers, issues)
+    _report(issues)
+    return peers, issues
+
+
+def peers_from_urls(urls: Iterable[str]) -> Tuple[List[dict], List[str]]:
+    """Peer list from bare URLs, as given by ``--peer`` or the environment."""
+    issues: List[str] = []
+    peers = []
+    for raw in urls:
+        peer = _peer_from_item(str(raw), "[--peer]", issues)
+        if peer is not None:
+            peers.append(peer)
+    return _dedupe_peers(peers, issues), issues
+
+
+def _report(issues: List[str]) -> None:
+    for issue in issues:
+        print(f"[Config] Warning: {issue}", file=sys.stderr)
