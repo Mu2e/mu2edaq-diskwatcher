@@ -77,6 +77,50 @@ def test_stale_pid_naming_a_live_stranger_is_not_killed(victim, pid_file):
     assert not pid_file.exists(), "stale pid file should be cleaned up"
 
 
+def test_python_run_from_a_path_naming_the_app_is_not_a_diskwatcher(tmp_path, pid_file):
+    """The interpreter path must not count as the command line.
+
+    The checkout is called mu2edaq-diskwatcher, so a `python` binary reached
+    through it -- a venv, a worktree's sibling venv -- puts the application
+    name into every process it runs.  Before this check the test suite itself,
+    run as ../mu2edaq-diskwatcher/venv/bin/python -m pytest, was identified as
+    the daemon and SIGTERMed by the stop script it was testing.
+    """
+    fake_bin = tmp_path / "mu2edaq-diskwatcher" / "venv" / "bin"
+    fake_bin.mkdir(parents=True)
+    interpreter = fake_bin / "python"
+    interpreter.symlink_to(shutil.which("python3"))
+    proc = subprocess.Popen([str(interpreter), "-c", "import time; time.sleep(300)"],
+                            cwd=str(REPO))
+    try:
+        pid_file.write_text(str(proc.pid))
+        result = sh(STOP, str(pid_file))
+        assert result.returncode == 0, result.stderr
+        time.sleep(1)
+        assert proc.poll() is None, "a python process was mistaken for the daemon"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
+
+
+def test_the_real_daemon_command_lines_are_still_recognised(tmp_path, pid_file):
+    """Tightening the matcher must not lose the three genuine spellings."""
+    script = tmp_path / "diskwatcher.py"
+    script.write_text("import time\ntime.sleep(300)\n")
+    proc = subprocess.Popen(["python3", str(script)], cwd=str(REPO))
+    try:
+        pid_file.write_text(str(proc.pid))
+        result = sh(STOP, str(pid_file), env={"CRS_STOP_TIMEOUT": "5"})
+        assert result.returncode == 0, result.stderr
+        proc.wait(timeout=15)
+        assert proc.returncode is not None, "a real diskwatcher command line was not stopped"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
+
+
 def test_stop_reports_nothing_running_when_there_is_no_pid_file(pid_file):
     result = sh(STOP, str(pid_file))
     assert result.returncode == 0

@@ -20,16 +20,24 @@
 # left behind by a SIGKILLed daemon will eventually name some unrelated
 # process -- and acting on that would mean SIGTERMing a stranger. Observed
 # during development: a stale diskwatcher.pid pointed at a live, unrelated pid.
+#
+# The application name is looked for in the *arguments*, never in the
+# interpreter path. The checkout is itself called mu2edaq-diskwatcher, so any
+# process run as /path/to/mu2edaq-diskwatcher/venv/bin/python -- pytest, pip,
+# a REPL -- would otherwise match on its executable alone and be stopped as
+# though it were the daemon. That happened to the test suite when run from a
+# git worktree, where the interpreter path had to be spelled out.
 dw_is_diskwatcher() {
-  local pid="$1" args
+  local pid="$1" args exe rest
   [[ -n "$pid" ]] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   args="$(ps -o args= -p "$pid" 2>/dev/null)"
-  case "$args" in
-    *diskwatcher.py*|*mu2edaq_diskwatcher*|*mu2edaq-diskwatcher*) ;;
-    *) return 1 ;;
+  exe="${args%% *}"
+  rest="${args#"$exe"}"
+  case "$exe" in *[Pp]ython*) ;; *) return 1 ;; esac
+  case "$rest" in
+    *diskwatcher.py*|*mu2edaq_diskwatcher*|*mu2edaq-diskwatcher*) return 0 ;;
   esac
-  case "$args" in *[Pp]ython*) return 0 ;; esac
   return 1
 }
 
