@@ -20,7 +20,7 @@ PEER_KEYS = {"url", "label", "timeout", "enabled"}
 #: Keys accepted when `peers:` is a mapping rather than a list.
 PEERS_SECTION_KEYS = {"static", "discover"}
 #: Keys accepted inside `peers.discover:`.
-DISCOVER_KEYS = {"enabled", "filter", "interval", "timeout", "exclude", "grace"}
+DISCOVER_KEYS = {"enabled", "filter", "interval", "timeout", "exclude", "grace", "probe"}
 #: Filter keys the discovery protocol understands (fnmatch globs).
 DISCOVER_FILTER_KEYS = ("app", "name", "host")
 #: What a diskwatcher's responder advertises itself as.
@@ -343,6 +343,8 @@ def default_discover() -> dict:
         "exclude":  [],          # host globs never to federate
         "grace":    None,        # seconds before a vanished peer is dropped;
                                  # None -> three scan intervals
+        "probe":    [],          # hosts (or host:port) also asked by unicast,
+                                 # for networks where multicast does not carry
     }
 
 
@@ -424,6 +426,22 @@ def _discover_from_item(raw, issues: List[str]) -> dict:
             issues.append(f"{where}: exclude: must be a list of host globs; ignored")
         else:
             d["exclude"] = [str(x).strip() for x in exclude if str(x).strip()]
+
+    probe = raw.get("probe")
+    if probe is not None:
+        if isinstance(probe, str):
+            probe = [probe]
+        if not isinstance(probe, list):
+            issues.append(f"{where}: probe: must be a list of hosts; ignored")
+        else:
+            seen: List[str] = []
+            for item in probe:
+                text = str(item).strip()
+                if not text or " " in text:
+                    issues.append(f"{where}: probe: {item!r} is not a host; ignored")
+                elif text not in seen:
+                    seen.append(text)
+            d["probe"] = seen
     return d
 
 

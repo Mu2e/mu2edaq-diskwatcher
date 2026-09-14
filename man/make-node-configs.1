@@ -66,6 +66,26 @@ Domain appended to short names in the header.
 Default:
 .BR fnal.gov .
 .TP
+.BR \-a ", " \-\-aggregator " " \fIHOST\fR
+Also write
+.IR config/mu2e\-diskwatcher\- short .yaml
+for the aggregator node
+.I HOST
+from
+.BR config/nodes/aggregator.template.yaml ,
+with every node (and
+.BR mu2e\-dl\-01 ,
+never
+.I HOST
+itself) listed under
+.B peers.static
+and under
+.BR peers.discover.probe .
+Default:
+.BR mu2e\-mgr\-01 .
+.B \-\-no\-aggregator
+skips it.
+.TP
 .BR \-l ", " \-\-list
 Print the built-in node list, one per line, and exit.
 .TP
@@ -95,6 +115,16 @@ The template.
 .TP
 .B config/nodes/mu2e\-diskwatcher\-*.yaml
 The generated configurations.
+.TP
+.B config/nodes/aggregator.template.yaml
+The aggregator template; its
+.B @STATIC_PEERS@
+and
+.B @PROBE_HOSTS@
+lines are replaced by the node lists.
+.TP
+.B config/mu2e\-diskwatcher\-mgr\-01.yaml
+The generated aggregator configuration.
 .SH EXIT STATUS
 .TP
 .B 0

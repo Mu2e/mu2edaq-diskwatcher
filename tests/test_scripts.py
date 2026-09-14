@@ -230,8 +230,9 @@ def test_fleet_list_covers_every_node_config_plus_dl_01():
     result = fleet("list")
     assert result.returncode == 0, result.stderr
     rows = dict(line.split(None, 1) for line in result.stdout.splitlines())
-    assert len(rows) == 28, sorted(rows)
+    assert len(rows) == 29, sorted(rows)
     assert rows["mu2e-dl-01"] == "config/mu2e-diskwatcher-dl-01.yaml"
+    assert rows["mu2e-mgr-01"] == "config/mu2e-diskwatcher-mgr-01.yaml"   # the aggregator
     assert rows["mu2e-trk-14"] == "config/nodes/mu2e-diskwatcher-trk-14.yaml"
     assert rows["mu2e-calo-01"] == "config/nodes/mu2e-diskwatcher-calo-01.yaml"
     assert rows["mu2egateway01"] == "config/nodes/mu2e-diskwatcher-mu2egateway01.yaml"
@@ -270,7 +271,7 @@ def test_fleet_dry_run_stop_and_status_and_flags():
 def test_fleet_exclude_and_unknown_node():
     result = fleet("list", "-x", "mu2e-dl-01", "-x", "mu2e-dl-02.fnal.gov")
     assert "mu2e-dl-01" not in result.stdout and "mu2e-dl-02" not in result.stdout
-    assert len(result.stdout.splitlines()) == 26
+    assert len(result.stdout.splitlines()) == 27
     result = fleet("-n", "mu2e-nope-99")
     assert result.returncode == 0
     assert "SKIP no config file for mu2e-nope-99" in result.stdout

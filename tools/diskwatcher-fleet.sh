@@ -184,14 +184,16 @@ summarise_health() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c '
 import json, sys
+# The body may carry ssh banners or warnings before the JSON, so decode from
+# the first brace and ignore anything after the object.
 text = sys.stdin.read()
-start = text.rfind("{")
+start = text.find("{")
 if start < 0:
-    sys.stdout.write(text.strip()); sys.exit(0)
+    sys.stdout.write(" ".join(text.split())[-200:]); sys.exit(0)
 try:
-    d = json.loads(text[start:])
+    d, _end = json.JSONDecoder().raw_decode(text[start:])
 except ValueError:
-    sys.stdout.write(text.strip()); sys.exit(0)
+    sys.stdout.write(" ".join(text.split())[-200:]); sys.exit(0)
 p = d.get("peers") or {}
 print("%s v%s, %d entries, poll %ss ago, up %ss, %d config issue(s), peers %d/%d ok"
       % (d.get("status"), d.get("version"), d.get("entries", 0), d.get("poll_age_s"),

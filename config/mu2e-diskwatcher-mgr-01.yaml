@@ -1,0 +1,148 @@
+# mu2e-diskwatcher-mgr-01.yaml — disk watcher configuration for mu2e-mgr-01.fnal.gov (the aggregator)
+#
+# GENERATED from config/nodes/aggregator.template.yaml by
+# tools/make-node-configs.sh.  Edit the template and re-run the script rather
+# than this file, or the next regeneration will silently undo the change.
+#
+# This node shows the whole fleet: every DAQ node's entries appear on its
+# dashboards under that node's heading.  It watches its own disks too.  Run
+# it on mu2e-mgr-01 with
+#
+#     ./start-mu2edaq-diskwatcher.sh -c ./config/mu2e-diskwatcher-mgr-01.yaml
+#
+# Keeping this in its own committed file, rather than editing the shipped
+# example config, means a `git pull` can never switch federation off again.
+
+watcher:
+  web_host:      "0.0.0.0"
+  web_port:      5002
+  poll_interval: 30
+  default_delay: 300
+  daemon:        false       # The start script passes --daemon
+  run_dir:       "run/{host}"
+  pid_file:      "{run_dir}/mu2e-diskwatcher-mgr-01.pid"
+  log_file:      "{run_dir}/mu2e-diskwatcher-mgr-01.log"
+  peer_timeout:  5           # seconds per peer HTTP fetch
+  peer_interval: 30          # seconds between fetches of every peer
+
+
+# ---------------------------------------------------------------------------
+# This node's own files and disks (same areas as every other node)
+# ---------------------------------------------------------------------------
+files:
+  - path:  /var/log/messages
+    label: "syslog (messages)"
+    delay: 3600
+    size:
+      allow_empty: true
+      warning:  "500 MiB"
+      critical: "2 GiB"
+      full:     "8 GiB"
+
+  - path:  /var/log/secure
+    label: "auth log (secure)"
+    size:
+      allow_empty: true
+      warning:  "100 MiB"
+      critical: "500 MiB"
+      full:     "2 GiB"
+
+paths:
+  - path:  /data
+    label: "DAQ data volume"
+    space: {warning: "10%", critical: "5%", full: "500 GiB"}
+  - path:  /daqlogs
+    label: "DAQ logs volume"
+    space: {warning: "15%", critical: "5%", full: "20 GiB"}
+  - path:  /scratch
+    label: "Scratch volume"
+    space: {warning: "15%", critical: "5%", full: "100 GiB"}
+  - path:  /var
+    label: "System /var"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+  - path:  /var/log
+    label: "System /var/log"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+  - path:  /tmp
+    label: "Temp directory"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+
+
+# ---------------------------------------------------------------------------
+# Peers: the whole fleet
+# ---------------------------------------------------------------------------
+# Every node is listed statically, so federation does not depend on multicast
+# reaching it: a node that is down shows as "unreachable" under its own
+# heading instead of silently vanishing.  Discovery runs as well, so a node
+# not in this list (a new one, a test instance) is picked up automatically.
+#
+# Multicast on the DAQ network does not carry between switches (IGMP snooping
+# with no querier), so the same hosts are also asked directly, by unicast, in
+# probe: -- that is what actually finds them.  Both lists are regenerated from
+# the node configs; add nodes there.
+peers:
+  static:
+    - {url: http://mu2egateway01.fnal.gov:5002, label: "mu2egateway01"}
+    - {url: http://mu2egateway02.fnal.gov:5002, label: "mu2egateway02"}
+    - {url: http://mu2e-dl-02.fnal.gov:5002, label: "mu2e-dl-02"}
+    - {url: http://mu2e-cfo-01.fnal.gov:5002, label: "mu2e-cfo-01"}
+    - {url: http://mu2e-trk-01.fnal.gov:5002, label: "mu2e-trk-01"}
+    - {url: http://mu2e-trk-02.fnal.gov:5002, label: "mu2e-trk-02"}
+    - {url: http://mu2e-trk-03.fnal.gov:5002, label: "mu2e-trk-03"}
+    - {url: http://mu2e-trk-04.fnal.gov:5002, label: "mu2e-trk-04"}
+    - {url: http://mu2e-trk-05.fnal.gov:5002, label: "mu2e-trk-05"}
+    - {url: http://mu2e-trk-06.fnal.gov:5002, label: "mu2e-trk-06"}
+    - {url: http://mu2e-trk-07.fnal.gov:5002, label: "mu2e-trk-07"}
+    - {url: http://mu2e-trk-08.fnal.gov:5002, label: "mu2e-trk-08"}
+    - {url: http://mu2e-trk-09.fnal.gov:5002, label: "mu2e-trk-09"}
+    - {url: http://mu2e-trk-10.fnal.gov:5002, label: "mu2e-trk-10"}
+    - {url: http://mu2e-trk-11.fnal.gov:5002, label: "mu2e-trk-11"}
+    - {url: http://mu2e-trk-12.fnal.gov:5002, label: "mu2e-trk-12"}
+    - {url: http://mu2e-trk-13.fnal.gov:5002, label: "mu2e-trk-13"}
+    - {url: http://mu2e-trk-14.fnal.gov:5002, label: "mu2e-trk-14"}
+    - {url: http://mu2e-calo-01.fnal.gov:5002, label: "mu2e-calo-01"}
+    - {url: http://mu2e-calo-02.fnal.gov:5002, label: "mu2e-calo-02"}
+    - {url: http://mu2e-calo-03.fnal.gov:5002, label: "mu2e-calo-03"}
+    - {url: http://mu2e-calo-04.fnal.gov:5002, label: "mu2e-calo-04"}
+    - {url: http://mu2e-calo-05.fnal.gov:5002, label: "mu2e-calo-05"}
+    - {url: http://mu2e-calo-06.fnal.gov:5002, label: "mu2e-calo-06"}
+    - {url: http://mu2e-calo-07.fnal.gov:5002, label: "mu2e-calo-07"}
+    - {url: http://mu2e-calo-08.fnal.gov:5002, label: "mu2e-calo-08"}
+    - {url: http://mu2e-crv-01.fnal.gov:5002, label: "mu2e-crv-01"}
+    - {url: http://mu2e-dl-01.fnal.gov:5002, label: "mu2e-dl-01"}
+  discover:
+    enabled:  true
+    filter:   {app: diskwatcher}
+    interval: 60
+    timeout:  2.0
+    grace:    180
+    exclude:  []
+    probe:
+      - mu2egateway01.fnal.gov
+      - mu2egateway02.fnal.gov
+      - mu2e-dl-02.fnal.gov
+      - mu2e-cfo-01.fnal.gov
+      - mu2e-trk-01.fnal.gov
+      - mu2e-trk-02.fnal.gov
+      - mu2e-trk-03.fnal.gov
+      - mu2e-trk-04.fnal.gov
+      - mu2e-trk-05.fnal.gov
+      - mu2e-trk-06.fnal.gov
+      - mu2e-trk-07.fnal.gov
+      - mu2e-trk-08.fnal.gov
+      - mu2e-trk-09.fnal.gov
+      - mu2e-trk-10.fnal.gov
+      - mu2e-trk-11.fnal.gov
+      - mu2e-trk-12.fnal.gov
+      - mu2e-trk-13.fnal.gov
+      - mu2e-trk-14.fnal.gov
+      - mu2e-calo-01.fnal.gov
+      - mu2e-calo-02.fnal.gov
+      - mu2e-calo-03.fnal.gov
+      - mu2e-calo-04.fnal.gov
+      - mu2e-calo-05.fnal.gov
+      - mu2e-calo-06.fnal.gov
+      - mu2e-calo-07.fnal.gov
+      - mu2e-calo-08.fnal.gov
+      - mu2e-crv-01.fnal.gov
+      - mu2e-dl-01.fnal.gov

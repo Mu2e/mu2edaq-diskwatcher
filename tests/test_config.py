@@ -361,6 +361,15 @@ def test_discover_numbers_and_exclude_are_parsed():
     assert d["exclude"] == ["mu2e-dl-99", "test-*"]
 
 
+def test_discover_probe_hosts_are_parsed_and_deduplicated():
+    d, issues = discover("peers:\n  discover:\n    probe: [mu2e-trk-01.fnal.gov, "
+                         "'mu2e-trk-02:28999', mu2e-trk-01.fnal.gov, '', 'bad host']\n")
+    assert d["probe"] == ["mu2e-trk-01.fnal.gov", "mu2e-trk-02:28999"]
+    assert sum("probe:" in i for i in issues) == 2          # '' and 'bad host'
+    assert discover("peers:\n  discover:\n    probe: mu2e-trk-01\n")[0]["probe"] == ["mu2e-trk-01"]
+    assert discover("peers:\n  discover: {}\n")[0]["probe"] == []
+
+
 def test_discover_exclude_accepts_a_single_string():
     assert discover("peers:\n  discover:\n    exclude: mu2e-dl-99\n")[0]["exclude"] == ["mu2e-dl-99"]
 

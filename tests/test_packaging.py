@@ -123,12 +123,39 @@ def test_node_configs_match_the_template_and_watch_the_six_areas():
         stem = path.name[:-len(".yaml")]
         assert cfg["watcher"]["pid_file"] == f"{{run_dir}}/{stem}.pid"
         assert cfg["peers"]["discover"]["enabled"] is False
-    # A dry run against the committed files must name exactly these.
+    # A dry run against the committed files must name exactly these, plus the
+    # aggregator.
     out = subprocess.run(["bash", str(REPO / "tools" / "make-node-configs.sh"), "-n"],
                          capture_output=True, text=True, cwd=str(REPO), timeout=60)
     assert out.returncode == 0, out.stderr
-    assert sorted(line.split()[2] for line in out.stdout.splitlines()) == \
-        sorted(str(p) for p in generated)
+    lines = out.stdout.splitlines()
+    node_lines = [l for l in lines if "(aggregator" not in l]
+    assert sorted(l.split()[2] for l in node_lines) == sorted(str(p) for p in generated)
+    (agg_line,) = [l for l in lines if "(aggregator" in l]
+    assert agg_line.split()[2] == str(REPO / "config" / "mu2e-diskwatcher-mgr-01.yaml")
+    assert "28 static peers" in agg_line
+
+
+def test_aggregator_config_lists_the_whole_fleet_statically_and_by_probe():
+    """mu2e-mgr-01 shows everything.  Static entries do not depend on
+    multicast; the same hosts are probed by unicast because multicast on the
+    DAQ network does not carry between switches; and the file is generated
+    and committed so a `git pull` can never switch federation off again."""
+    import yaml
+    path = REPO / "config" / "mu2e-diskwatcher-mgr-01.yaml"
+    text = path.read_text()
+    assert "# GENERATED from" in text
+    cfg = yaml.safe_load(text)
+    peers = cfg["peers"]
+    urls = [p["url"] for p in peers["static"]]
+    assert len(urls) == 28 and len(set(urls)) == 28
+    assert "http://mu2e-dl-01.fnal.gov:5002" in urls          # the hand-written node too
+    assert "http://mu2e-trk-14.fnal.gov:5002" in urls
+    assert not any("mgr-01" in u for u in urls)                # never itself
+    d = peers["discover"]
+    assert d["enabled"] is True
+    assert sorted(d["probe"]) == sorted(u[len("http://"):-len(":5002")] for u in urls)
+    assert cfg["watcher"]["pid_file"] == "{run_dir}/mu2e-diskwatcher-mgr-01.pid"
 
 
 def test_default_config_ships_with_discovery_present_but_off():

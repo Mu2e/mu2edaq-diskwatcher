@@ -1,0 +1,94 @@
+# @FILE@ — disk watcher configuration for @FQDN@ (the aggregator)
+#
+# GENERATED from config/nodes/aggregator.template.yaml by
+# tools/make-node-configs.sh.  Edit the template and re-run the script rather
+# than this file, or the next regeneration will silently undo the change.
+#
+# This node shows the whole fleet: every DAQ node's entries appear on its
+# dashboards under that node's heading.  It watches its own disks too.  Run
+# it on @HOST@ with
+#
+#     ./start-mu2edaq-diskwatcher.sh -c ./config/@FILE@
+#
+# Keeping this in its own committed file, rather than editing the shipped
+# example config, means a `git pull` can never switch federation off again.
+
+watcher:
+  web_host:      "0.0.0.0"
+  web_port:      5002
+  poll_interval: 30
+  default_delay: 300
+  daemon:        false       # The start script passes --daemon
+  run_dir:       "run/{host}"
+  pid_file:      "{run_dir}/@FILE_STEM@.pid"
+  log_file:      "{run_dir}/@FILE_STEM@.log"
+  peer_timeout:  5           # seconds per peer HTTP fetch
+  peer_interval: 30          # seconds between fetches of every peer
+
+
+# ---------------------------------------------------------------------------
+# This node's own files and disks (same areas as every other node)
+# ---------------------------------------------------------------------------
+files:
+  - path:  /var/log/messages
+    label: "syslog (messages)"
+    delay: 3600
+    size:
+      allow_empty: true
+      warning:  "500 MiB"
+      critical: "2 GiB"
+      full:     "8 GiB"
+
+  - path:  /var/log/secure
+    label: "auth log (secure)"
+    size:
+      allow_empty: true
+      warning:  "100 MiB"
+      critical: "500 MiB"
+      full:     "2 GiB"
+
+paths:
+  - path:  /data
+    label: "DAQ data volume"
+    space: {warning: "10%", critical: "5%", full: "500 GiB"}
+  - path:  /daqlogs
+    label: "DAQ logs volume"
+    space: {warning: "15%", critical: "5%", full: "20 GiB"}
+  - path:  /scratch
+    label: "Scratch volume"
+    space: {warning: "15%", critical: "5%", full: "100 GiB"}
+  - path:  /var
+    label: "System /var"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+  - path:  /var/log
+    label: "System /var/log"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+  - path:  /tmp
+    label: "Temp directory"
+    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+
+
+# ---------------------------------------------------------------------------
+# Peers: the whole fleet
+# ---------------------------------------------------------------------------
+# Every node is listed statically, so federation does not depend on multicast
+# reaching it: a node that is down shows as "unreachable" under its own
+# heading instead of silently vanishing.  Discovery runs as well, so a node
+# not in this list (a new one, a test instance) is picked up automatically.
+#
+# Multicast on the DAQ network does not carry between switches (IGMP snooping
+# with no querier), so the same hosts are also asked directly, by unicast, in
+# probe: -- that is what actually finds them.  Both lists are regenerated from
+# the node configs; add nodes there.
+peers:
+  static:
+@STATIC_PEERS@
+  discover:
+    enabled:  true
+    filter:   {app: diskwatcher}
+    interval: 60
+    timeout:  2.0
+    grace:    180
+    exclude:  []
+    probe:
+@PROBE_HOSTS@

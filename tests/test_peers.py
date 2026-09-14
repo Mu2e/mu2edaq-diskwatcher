@@ -520,6 +520,122 @@ def test_excluded_reasons_are_counted_for_the_operator(settings, scans):
     assert snap["excluded"] == {"excluded": 1, "self": 1, "scheme vnc": 1}
 
 
+# ---- unicast probes -----------------------------------------------------
+# Multicast on the DAQ network does not cross switches, so discovery also
+# asks listed hosts directly.  A real UDP responder on a loopback port stands
+# in for a node; the discovery package must be importable for these.
+protocol = pytest.importorskip("mu2edaq_discovery.protocol", reason="mu2edaq-discovery not installed")
+
+
+@pytest.fixture
+def udp_responder():
+    """A loopback responder speaking the discovery protocol.  Yields (port, seen)."""
+    import socket as _socket
+    import threading as _threading
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.2)
+    port = sock.getsockname()[1]
+    seen = []
+    stop = _threading.Event()
+    state = {"instance_id": "probe-peer", "host": "probe-peer.example", "app": "diskwatcher"}
+
+    def serve():
+        while not stop.is_set():
+            try:
+                data, addr = sock.recvfrom(2000)
+            except _socket.timeout:
+                continue
+            msg = protocol.decode(data)
+            seen.append(msg)
+            if msg["type"] != "DISCOVER":
+                continue
+            reply = protocol.build_announce(
+                name="Disk Watcher", app=state["app"], port=5002, instance_id=state["instance_id"],
+                qid=msg["qid"], host=state["host"], scheme="http", version="1.3.0",
+                meta={"instance_id": state["instance_id"]})
+            if protocol.matches_filter(reply, msg.get("filter")):
+                sock.sendto(protocol.encode(reply), addr)
+
+    thread = _threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield port, seen, state
+    stop.set()
+    thread.join(timeout=2)
+    sock.close()
+
+
+def test_probe_reaches_a_host_by_unicast(udp_responder):
+    port, seen, _ = udp_responder
+    records, errors = peers._run_probe([f"127.0.0.1:{port}"], {"app": "diskwatcher"}, timeout=1.0)
+    assert errors == []
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["host"] == "probe-peer.example" and rec["addr"] == "127.0.0.1"
+    assert rec["meta"] == {"instance_id": "probe-peer"}
+    assert seen and seen[0]["filter"] == {"app": "diskwatcher"}
+
+
+def test_probe_reports_unsendable_hosts_and_bad_ports(udp_responder):
+    port, _, _ = udp_responder
+    records, errors = peers._run_probe(
+        [f"127.0.0.1:{port}", "127.0.0.1:notaport", "no-such-host.invalid:28999"],
+        {"app": "diskwatcher"}, timeout=1.0)
+    assert len(records) == 1
+    assert any("bad port" in e for e in errors)
+    assert any("no-such-host.invalid" in e for e in errors)
+
+
+def test_probe_respects_the_filter(udp_responder):
+    port, _, _ = udp_responder
+    records, _ = peers._run_probe([f"127.0.0.1:{port}"], {"app": "vnc"}, timeout=0.5)
+    assert records == []
+
+
+def test_scan_merges_multicast_and_probe_by_id(settings, scans, udp_responder):
+    port, _, state = udp_responder
+    enable_discovery(settings, probe=[f"127.0.0.1:{port}"], timeout=1.0)
+    # Multicast finds "a" and the same probe peer; probe finds the probe peer.
+    scans.append([announce("a"), announce("probe-peer.example", id="probe-peer",
+                                          meta={"instance_id": "probe-peer"})])
+    found = active_peers(0.0)
+    assert sorted(p["label"] for p in found) == ["a", "probe-peer"]
+    snap = DISCOVERY.snapshot(settings.discover)
+    assert snap["responders"] == 2                     # merged, not 3
+    assert snap["multicast_replies"] == 2 and snap["probe_replies"] == 1
+    assert snap["probe"] == [f"127.0.0.1:{port}"] and snap["probe_errors"] == []
+
+
+def test_probe_alone_finds_peers_when_multicast_is_silent(settings, scans, udp_responder):
+    """The Mu2e case: the aggregator's multicast reaches nobody."""
+    port, _, _ = udp_responder
+    enable_discovery(settings, probe=[f"127.0.0.1:{port}"], timeout=1.0)
+    scans.append([])                                   # multicast: nothing
+    found = active_peers(0.0)
+    assert [p["label"] for p in found] == ["probe-peer"]
+    assert found[0]["url"] == "http://probe-peer.example:5002"
+    assert found[0]["source"] == "discovered"
+
+
+def test_probe_sets_aside_ourselves_too(settings, scans, udp_responder):
+    port, _, state = udp_responder
+    state["instance_id"] = INSTANCE_ID
+    enable_discovery(settings, probe=[f"127.0.0.1:{port}"], timeout=1.0)
+    scans.append([])
+    assert active_peers(0.0) == []
+    assert DISCOVERY.snapshot(settings.discover)["excluded"] == {"self": 1}
+
+
+def test_multicast_failure_does_not_discard_probe_answers(settings, scans, udp_responder):
+    port, _, _ = udp_responder
+    enable_discovery(settings, probe=[f"127.0.0.1:{port}"], timeout=1.0)
+    scans.append(OSError("no multicast route"))
+    found = active_peers(0.0)
+    assert [p["label"] for p in found] == ["probe-peer"]
+    snap = DISCOVERY.snapshot(settings.discover)
+    assert "no multicast route" in snap["error"] and snap["probe_replies"] == 1
+
+
 def test_do_peer_poll_fetches_discovered_peers_and_records_provenance(stub, tmp_tree, settings, scans):
     serve_state(stub, state_payload(tmp_tree))
     host, port = "127.0.0.1", stub.server_port

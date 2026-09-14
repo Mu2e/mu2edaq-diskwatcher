@@ -239,12 +239,19 @@
         <tr><th class="ps-3">Excluded hosts</th>
             <td>{% if discovery.exclude %}<code>{{ discovery.exclude | join(' ') }}</code>
                 {% else %}<span class="text-muted">none</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">Unicast probes</th>
+            <td>{% if discovery.probe %}{{ discovery.probe | length }} host(s) asked directly each scan
+                  <small class="text-muted">for networks where multicast does not carry between switches</small>
+                  {% if discovery.probe_errors %}<div class="text-danger small">
+                    {{ discovery.probe_errors | length }} could not be sent to: {{ discovery.probe_errors | join('; ') }}</div>{% endif %}
+                {% else %}<span class="text-muted">none (multicast only)</span>{% endif %}</td></tr>
         <tr><th class="ps-3">Scan interval / timeout</th>
             <td>{{ fmt_duration(discovery.interval) }} / {{ discovery.timeout }}&nbsp;s
               <small class="text-muted">a peer unseen for {{ fmt_duration(discovery.grace) }} is dropped</small></td></tr>
         <tr><th class="ps-3">Last scan</th>
             <td>{% if discovery.last_scan %}{{ discovery.last_scan_age_s | round | int }}&nbsp;s ago,
                   {{ discovery.responders }} responder(s) answered in {{ discovery.last_scan_duration_s }}&nbsp;s
+                  {%- if discovery.probe %} ({{ discovery.multicast_replies }} by multicast, {{ discovery.probe_replies }} by probe){% endif %}
                   {%- if discovery.excluded %};
                     set aside: {% for reason, n in discovery.excluded | dictsort %}{{ n }} {{ reason }}{% if not loop.last %}, {% endif %}{% endfor %}
                   {%- endif %}

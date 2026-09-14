@@ -184,6 +184,66 @@ def _run_discover(filter: dict, timeout: float) -> List[dict]:
     return discover(filter=filter, timeout=timeout)
 
 
+def _run_probe(hosts: List[str], filter: dict, timeout: float) -> Tuple[List[dict], List[str]]:
+    """Ask each host directly, by unicast, the same DISCOVER question.
+
+    Multicast only reaches the switch the querier sits on when IGMP snooping
+    runs without a querier -- the Mu2e DAQ network splits into islands that
+    way -- but every responder also answers a datagram sent straight to its
+    port.  One socket, one query, every host, then collect replies until the
+    timeout.  A ``host:port`` entry overrides the protocol port.  Returns the
+    records and one message per host that could not even be sent to.
+    """
+    from mu2edaq_discovery import protocol
+
+    query = protocol.build_query(filter=filter or None)
+    payload = protocol.encode(query)
+    errors: List[str] = []
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("", 0))
+        sent = 0
+        for spec in hosts:
+            host, port = spec, protocol.PORT
+            if spec.count(":") == 1:
+                host, port_text = spec.rsplit(":", 1)
+                try:
+                    port = int(port_text)
+                except ValueError:
+                    errors.append(f"{spec}: bad port")
+                    continue
+            try:
+                sock.sendto(payload, (host, port))
+                sent += 1
+            except OSError as exc:                 # name does not resolve, etc.
+                errors.append(f"{spec}: {exc}")
+        found: Dict[str, dict] = {}
+        deadline = time.monotonic() + timeout
+        while sent and len(found) < sent:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            sock.settimeout(remaining)
+            try:
+                data, addr = sock.recvfrom(protocol.MAX_DATAGRAM + 1)
+            except socket.timeout:
+                break
+            try:
+                msg = protocol.decode(data)
+            except protocol.ProtocolError:
+                continue
+            if msg.get("type") != "ANNOUNCE" or msg.get("qid") != query["qid"]:
+                continue
+            if not protocol.matches_filter(msg, filter):
+                continue
+            msg = dict(msg)
+            msg["addr"] = addr[0]                  # who actually answered
+            found[msg["id"]] = msg
+        return list(found.values()), errors
+    finally:
+        sock.close()
+
+
 def host_excluded(host: str, patterns: List[str]) -> bool:
     """fnmatch *host* -- full and short forms -- against the exclude globs."""
     short = host.split(".", 1)[0]
@@ -238,6 +298,9 @@ class DiscoveryState:
         self.last_scan: Optional[float] = None
         self.last_scan_duration_s: Optional[float] = None
         self.responders = 0
+        self.multicast_replies = 0
+        self.probe_replies = 0
+        self.probe_errors: List[str] = []
         self.excluded: Dict[str, int] = {}
         self.error: Optional[str] = None
         self.scans = 0
@@ -246,19 +309,42 @@ class DiscoveryState:
         return self.last_scan is None or now - self.last_scan >= interval
 
     def scan(self, cfg: dict, now: float) -> None:
-        """Run one discovery and fold the answers into ``_seen``."""
+        """Run one discovery -- multicast, then unicast probes -- into ``_seen``.
+
+        The two answer sets are merged by responder id, so a host reached both
+        ways counts once.  A failure of one path is reported but does not
+        discard the other's answers.
+        """
         started = time.time()
+        filt = cfg.get("filter") or {}
+        timeout = cfg.get("timeout") or 2.0
+        errors: List[str] = []
+        records: Dict[str, dict] = {}
+
         try:
-            records = _run_discover(cfg.get("filter") or {}, cfg.get("timeout") or 2.0)
-            error = None
+            multicast = _run_discover(filt, timeout)
         except ImportError:
-            records, error = [], "mu2edaq-discovery is not installed"
+            multicast, errors = [], ["mu2edaq-discovery is not installed"]
         except Exception as exc:                   # socket errors, bad datagrams
-            records, error = [], f"{type(exc).__name__}: {exc}"
+            multicast, errors = [], [f"multicast: {type(exc).__name__}: {exc}"]
+        for record in multicast:
+            records[record.get("id") or record.get("host")] = record
+
+        probe_hosts = list(cfg.get("probe") or [])
+        probe_replies = 0
+        probe_errors: List[str] = []
+        if probe_hosts and "mu2edaq-discovery is not installed" not in errors:
+            try:
+                probed, probe_errors = _run_probe(probe_hosts, filt, timeout)
+            except Exception as exc:
+                probed, probe_errors = [], [f"probe: {type(exc).__name__}: {exc}"]
+            probe_replies = len(probed)
+            for record in probed:
+                records.setdefault(record.get("id") or record.get("host"), record)
 
         excluded: Dict[str, int] = {}
         found: Dict[str, dict] = {}
-        for record in records:
+        for record in records.values():
             peer, reason = record_to_peer(record, cfg.get("exclude") or [])
             if peer is None:
                 excluded[reason] = excluded.get(reason, 0) + 1
@@ -277,11 +363,17 @@ class DiscoveryState:
             self.last_scan = now
             self.last_scan_duration_s = round(time.time() - started, 3)
             self.responders = len(records)
+            self.multicast_replies = len(multicast)
+            self.probe_replies = probe_replies
+            self.probe_errors = probe_errors
             self.excluded = excluded
-            self.error = error
+            self.error = "; ".join(errors) if errors else None
             self.scans += 1
-        if error and (self.scans == 1 or get_settings().verbose):
-            print(f"[Peers] discovery failed: {error}", file=sys.stderr)
+        if errors and (self.scans == 1 or get_settings().verbose):
+            print(f"[Peers] discovery failed: {'; '.join(errors)}", file=sys.stderr)
+        if probe_errors and (self.scans == 1 or get_settings().verbose):
+            print(f"[Peers] discovery probe: {len(probe_errors)} host(s) could not be "
+                  f"sent to: {'; '.join(probe_errors)}", file=sys.stderr)
 
     def expire(self, now: float, grace: float) -> List[str]:
         """Drop peers unseen for *grace* seconds; return their URLs."""
@@ -319,11 +411,15 @@ class DiscoveryState:
                 "timeout":              cfg.get("timeout"),
                 "grace":                cfg.get("grace"),
                 "exclude":              list(cfg.get("exclude") or []),
+                "probe":                list(cfg.get("probe") or []),
                 "scans":                self.scans,
                 "last_scan":            last,
                 "last_scan_age_s":      None if last is None else round(now - last, 1),
                 "last_scan_duration_s": self.last_scan_duration_s,
                 "responders":           self.responders,
+                "multicast_replies":    self.multicast_replies,
+                "probe_replies":        self.probe_replies,
+                "probe_errors":         list(self.probe_errors),
                 "excluded":             dict(self.excluded),
                 "error":                self.error,
                 "peers":                sorted(self._seen.keys()),
@@ -335,6 +431,9 @@ class DiscoveryState:
             self.last_scan = None
             self.last_scan_duration_s = None
             self.responders = 0
+            self.multicast_replies = 0
+            self.probe_replies = 0
+            self.probe_errors = []
             self.excluded = {}
             self.error = None
             self.scans = 0
