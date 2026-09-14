@@ -205,14 +205,11 @@ def test_stop_reads_the_pre_1_3_pid_file_too(tmp_path):
             legacy.unlink()
 
 
-def test_legacy_script_names_are_links_to_the_real_ones():
-    """The pre-t00.01.00 names must keep tracking the standardised scripts,
-    or a per-node change like this one would silently miss whoever still
-    calls them."""
-    for name, target in (("start_diskwatcher.sh", START), ("stop_diskwatcher.sh", STOP)):
-        link = REPO / name
-        assert link.is_symlink(), f"{name} should be a symlink"
-        assert link.resolve() == target.resolve(), name
+def test_legacy_script_names_are_gone():
+    """start_diskwatcher.sh / stop_diskwatcher.sh were removed in 1.3.0; a
+    stray copy reappearing would drift from the real scripts again."""
+    for name in ("start_diskwatcher.sh", "stop_diskwatcher.sh"):
+        assert not (REPO / name).exists(), f"{name} should not exist"
 
 
 # ---- replace-on-start --------------------------------------------------

@@ -101,9 +101,7 @@ Not yet tagged. On branch `feature/peer-federation`.
   over a running daemon replaces it, and the stop script removes a stale
   legacy file only when it names nothing alive on this node — on a shared
   checkout it may belong to another node's daemon. A new `dw_node` helper in
-  `lib/diskwatcher-proc.sh` yields the short hostname with fallbacks. The
-  historical `start_diskwatcher.sh` / `stop_diskwatcher.sh` names are
-  symlinks to these scripts and follow automatically; a test now says so.
+  `lib/diskwatcher-proc.sh` yields the short hostname with fallbacks.
 - **`tests/test_peers.py`**, driving the client against a real loopback HTTP
   server: refused, timed out, HTTP error, not JSON, not a diskwatcher payload,
   oversized, self-reference, retained data across a failure and recovery,
@@ -123,6 +121,14 @@ Not yet tagged. On branch `feature/peer-federation`.
   interpreter is checked separately. Two tests in `tests/test_scripts.py`
   lock both directions: a `python` reached through such a path is left alone,
   and the three genuine spellings are still stopped.
+
+### Removed
+
+- **`start_diskwatcher.sh` and `stop_diskwatcher.sh`**, the pre-`t00.01.00`
+  script names. They had been symlinks to the standardised
+  `start-mu2edaq-diskwatcher.sh` / `stop-mu2edaq-diskwatcher.sh` since that
+  release; `crs-app` has used the hyphenated names throughout. Anything still
+  calling the old names must switch. A test asserts they stay gone.
 
 ### Compatibility
 

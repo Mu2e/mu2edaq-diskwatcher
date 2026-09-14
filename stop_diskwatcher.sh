@@ -1,1 +1,0 @@
-stop-mu2edaq-diskwatcher.sh
