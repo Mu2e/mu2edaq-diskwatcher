@@ -12,7 +12,10 @@ It answers three questions about the paths you point it at:
 | Is this file empty, or growing out of control? | `size:` | `/sizes` — File Sizes |
 
 Each page shows summary cards counting the entries in every alarm state,
-followed by a sortable table. Local and remote (SSH) paths are both supported,
+followed by a sortable table. On Disk Space the WARNING, CRITICAL, FULL and
+UNAVAILABLE cards filter the table to that category (TOTAL or *Reset filter*
+clears it), and *Expand all* / *Collapse all* / *Auto* roll the host and peer
+groups up or open together. Local and remote (SSH) paths are both supported,
 and instances can be [federated](#peers-aggregating-other-instances): one
 dashboard can show what the diskwatchers on other nodes are monitoring, each
 under its own heading.

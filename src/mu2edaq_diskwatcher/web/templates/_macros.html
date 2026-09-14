@@ -2,9 +2,15 @@
 
 {# A summary card.  `key` becomes the element id `stat-<prefix>-<key>`, which
    renderStatCards() in diskwatcher.js fills from the API summary object. #}
-{% macro stat_card(prefix, key, label, cls) %}
+{% macro stat_card(prefix, key, label, cls, filter=None) %}
+{#- `filter` makes the card a control: a state key ('warning', 'unavailable',
+    ...) shows only entries in that category (click again to clear), 'all'
+    clears any filter.  Wired by installStatFilters() in diskwatcher.js. -#}
 <div class="col-6 col-md-4 col-xl">
-  <div class="card stat-card {{ cls }}-card h-100">
+  <div class="card stat-card {{ cls }}-card h-100{% if filter %} stat-filter{% endif %}"
+       id="card-{{ prefix }}-{{ key }}"
+       {%- if filter %} data-filter="{{ filter }}" role="button" tabindex="0"
+       title="{% if filter == 'all' %}Show every entry (clear the filter){% else %}Show only {{ label }} entries. Click again to clear.{% endif %}"{% endif %}>
     <div class="card-body">
       <div class="text-muted small">{{ label }}</div>
       <div class="display-6 fw-bold text-{{ cls }}-state"
@@ -50,6 +56,27 @@
    so a standalone instance renders exactly as before. #}
 {% macro peer_strip() %}
 <div id="peer-strip" class="mb-3 small" hidden></div>
+{% endmacro %}
+
+{# The "Showing N of M <state> entries . Reset" line, filled by
+   renderFilterBar() in diskwatcher.js and hidden while no filter is active. #}
+{% macro filter_bar(prefix) %}
+<div id="filter-bar-{{ prefix }}" class="filter-bar mb-3 small" hidden></div>
+{% endmacro %}
+
+{# Expand / collapse every host and peer group on the page, or return them to
+   following their own health ("auto").  Backed by setAllGroups() /
+   resetGroups() in diskwatcher.js, which write the same overrides a click on
+   a group header does. #}
+{% macro group_controls(table) %}
+<div class="btn-group btn-group-sm group-controls" role="group" aria-label="Groups">
+  <button type="button" class="btn btn-outline-secondary" onclick="setAllGroups('{{ table }}', false)"
+          title="Expand every host and peer group"><i class="bi bi-arrows-expand"></i> Expand all</button>
+  <button type="button" class="btn btn-outline-secondary" onclick="setAllGroups('{{ table }}', true)"
+          title="Collapse every host and peer group"><i class="bi bi-arrows-collapse"></i> Collapse all</button>
+  <button type="button" class="btn btn-outline-secondary" onclick="resetGroups('{{ table }}')"
+          title="Forget manual choices: groups open when something inside needs attention and fold otherwise">Auto</button>
+</div>
 {% endmacro %}
 
 {# Label / path cell, server-side twin of the one in diskwatcher.js. #}

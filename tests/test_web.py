@@ -502,3 +502,48 @@ def test_shared_js_defines_the_peer_helpers():
 def test_watcher_page_now_groups_by_host_too():
     src = (TEMPLATES / "index.html").read_text()
     assert "if (!entries.length) return null;" not in src
+
+
+# ---- stat-card filters and group roll-up (Disk Space) --------------------
+def test_space_cards_filter_except_good_and_total_resets():
+    src = (TEMPLATES / "space.html").read_text()
+    for key in ("warning", "critical", "full", "unavailable"):
+        assert f"filter='{key}'" in src, key
+    assert "filter='all'" in src                          # TOTAL clears the filter
+    good_line = [ln for ln in src.splitlines() if "'good'" in ln][0]
+    assert "filter=" not in good_line, "GOOD must stay a plain counter"
+    assert "{{ m.filter_bar('space') }}" in src
+    assert "{{ m.group_controls('space') }}" in src
+    assert "installStatFilters('space', 'space')" in src
+    assert "applyStateFilter('space'" in src and "filterPeers('space'" in src
+    assert "renderFilterBar('space'" in src
+    # The cards keep the unfiltered counts: they render from the raw payload.
+    assert "renderStatCards('space', data.aggregate || data.summary)" in src
+
+
+def test_stat_card_macro_marks_filterable_cards(client, populated):
+    body = client.get("/space").get_data(as_text=True)
+    assert 'id="card-space-critical" data-filter="critical" role="button" tabindex="0"' in body
+    assert 'id="card-space-total" data-filter="all"' in body
+    assert 'id="card-space-good"' in body
+    assert 'id="card-space-good" data-filter' not in body
+    assert 'id="filter-bar-space"' in body
+    assert "setAllGroups('space', false)" in body
+    assert "setAllGroups('space', true)" in body
+    assert "resetGroups('space')" in body
+
+
+def test_shared_js_defines_the_filter_and_rollup_helpers():
+    src = (STATIC / "diskwatcher.js").read_text()
+    for fn in ("installStatFilters", "setStateFilter", "clearStateFilter", "activeFilter",
+               "applyStateFilter", "filterPeers", "renderFilterBar", "filterMatches",
+               "setAllGroups", "resetGroups", "groupIdsIn"):
+        assert f"function {fn}(" in src, fn
+    # Persisted like the group overrides, in its own key.
+    assert "diskwatcher.stateFilter" in src
+    # UNAVAILABLE is the composite card the pages show for MISSING and UNKNOWN.
+    assert "unavailable: ['missing', 'unknown']" in src
+    # Expand/collapse-all write the same override store a header click does,
+    # so the next poll cannot undo them.
+    body = src[src.index("function setAllGroups("):src.index("function resetGroups(")]
+    assert "hostOverrides[id] = collapsed" in body and "saveOverrides()" in body

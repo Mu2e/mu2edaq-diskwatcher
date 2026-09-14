@@ -476,6 +476,16 @@ and refused.
 While a peer is unreachable, its entries from the last good fetch stay on
 screen dimmed, with the error and the time they were last current, and its
 group is held open.
+.PP
+On the Disk Space page the WARNING, CRITICAL, FULL and UNAVAILABLE summary
+cards are filters: clicking one shows only entries in that category (local and
+peer alike) while the cards keep their full counts; clicking it again, the
+TOTAL card or the
+.I Reset filter
+link clears it.
+.IR "Expand all" ", " "Collapse all" " and " Auto
+in the table header roll every host and peer group up or open together, or
+return them to following their own health.
 Those entries are excluded from the summary cards and from every
 .B aggregate
 in the JSON API.

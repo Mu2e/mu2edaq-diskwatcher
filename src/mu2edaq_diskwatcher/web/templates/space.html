@@ -4,12 +4,13 @@
 {% block content %}
 <div class="row g-3 mb-3">
   {{ m.stat_card('space', 'good',        'GOOD',        'good') }}
-  {{ m.stat_card('space', 'warning',     'WARNING',     'warning') }}
-  {{ m.stat_card('space', 'critical',    'CRITICAL',    'critical') }}
-  {{ m.stat_card('space', 'full',        'FULL',        'full') }}
-  {{ m.stat_card('space', 'unavailable', 'UNAVAILABLE', 'unavailable') }}
-  {{ m.stat_card('space', 'total',       'TOTAL',       'total') }}
+  {{ m.stat_card('space', 'warning',     'WARNING',     'warning',     filter='warning') }}
+  {{ m.stat_card('space', 'critical',    'CRITICAL',    'critical',    filter='critical') }}
+  {{ m.stat_card('space', 'full',        'FULL',        'full',        filter='full') }}
+  {{ m.stat_card('space', 'unavailable', 'UNAVAILABLE', 'unavailable', filter='unavailable') }}
+  {{ m.stat_card('space', 'total',       'TOTAL',       'total',       filter='all') }}
 </div>
+{{ m.filter_bar('space') }}
 {{ m.peer_strip() }}
 
 <div class="card mb-4">
@@ -18,7 +19,10 @@
       <i class="bi bi-pie-chart"></i> Free Space
       <small class="text-muted ms-1" id="space-count"></small>
     </span>
-    {{ m.refresh_controls() }}
+    <div class="d-flex align-items-center gap-3 flex-wrap justify-content-end">
+      {{ m.group_controls('space') }}
+      {{ m.refresh_controls() }}
+    </div>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -87,21 +91,30 @@ function spaceRows(entries) {
 }
 
 function renderSpace(data) {
-  const peers = data.peers || [];
+  const allPeers = data.peers || [];
+  const allEntries = data.entries || [];
+  // Cards and the peer strip always show the unfiltered picture; only the
+  // table narrows to the chosen category.
   renderStatCards('space', data.aggregate || data.summary);
-  renderPeerStrip(peers);
-  const entries = data.entries || [];
+  renderPeerStrip(allPeers);
+  const entries = applyStateFilter('space', allEntries, 'space_state');
+  const peers = filterPeers('space', allPeers, 'space_state');
   const countEl = document.getElementById('space-count');
   if (countEl) countEl.textContent = countLabel(entries.length, peers);
+  renderFilterBar('space', 'space', totalEntries(entries, peers), totalEntries(allEntries, allPeers));
   updateSortIndicators('space');
+  const filter = activeFilter('space');
   fillTable('tbody-space',
     groupedRows('space', sortRows('space', entries), spaceRows,
       {colspan: 7, stateKey: 'space_state', rankKey: 'space_rank',
        alertRank: data.alert_rank, peers: peers}), 7,
-    'No directories are monitored for free space. Add a space: block to an ' +
-    'entry under paths: in the YAML config file.');
+    filter
+      ? 'No entries are in state ' + filter.toUpperCase() + ' right now. Click the card again, or Reset filter, to see everything.'
+      : 'No directories are monitored for free space. Add a space: block to an ' +
+        'entry under paths: in the YAML config file.');
 }
 
+installStatFilters('space', 'space');
 startDashboard('/api/space?peers=1', renderSpace);
 </script>
 {% endblock %}

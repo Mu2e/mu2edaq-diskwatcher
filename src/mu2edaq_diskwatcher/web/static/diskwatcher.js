@@ -477,6 +477,137 @@ function countLabel(localCount, peers) {
          (peers.length === 1 ? ' peer)' : ' peers)');
 }
 
+// ---- expand / collapse every group ------------------------------------
+// Both write the same per-group overrides a header click does, for every
+// group present in the current payload (hosts from the entries, plus peers),
+// so the result survives the next poll exactly like a manual toggle.
+function groupIdsIn(table, data) {
+  const ids = [];
+  for (const g of groupByHost(data.entries || [])) ids.push(collapseId(table, g.host));
+  for (const peer of (data.peers || [])) ids.push(collapseId(table, peerKey(peer)));
+  return ids;
+}
+
+function setAllGroups(table, collapsed) {
+  if (!currentData) return;
+  for (const id of groupIdsIn(table, currentData)) hostOverrides[id] = collapsed;
+  saveOverrides();
+  renderAll(currentData);
+}
+
+// Drop every override for this table so groups follow their health again.
+function resetGroups(table) {
+  const prefix = table + '\u001f';
+  for (const id of Object.keys(hostOverrides)) {
+    if (id.startsWith(prefix)) delete hostOverrides[id];
+  }
+  saveOverrides();
+  if (currentData) renderAll(currentData);
+}
+
+// ---- state filter ------------------------------------------------------
+// Clicking a stat card (other than GOOD, which is the quiet majority) narrows
+// the table to entries in that category; clicking it again, the TOTAL card or
+// the Reset link clears it.  The cards keep showing the unfiltered counts.
+// The choice is held per table and persisted like the group overrides.
+// 'unavailable' is the one composite category: it is the card the pages show
+// for MISSING and UNKNOWN together, so it matches both.
+const FILTER_KEY = 'diskwatcher.stateFilter';
+const FILTER_ALIASES = {unavailable: ['missing', 'unknown']};
+
+function loadFilters() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(FILTER_KEY) || '{}');
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+let stateFilters = loadFilters();
+
+function saveFilters() {
+  try {
+    window.localStorage.setItem(FILTER_KEY, JSON.stringify(stateFilters));
+  } catch (err) {
+    // Storage unavailable: the filter still applies until the page is closed.
+  }
+}
+
+function activeFilter(table) {
+  const key = stateFilters[table];
+  return (typeof key === 'string' && key && key !== 'all') ? key : null;
+}
+
+function filterMatches(key, state) {
+  const st = String(state || 'unknown').toLowerCase();
+  const names = FILTER_ALIASES[key] || [key];
+  return names.indexOf(st) !== -1;
+}
+
+// Toggle: the active filter clicked again clears it; 'all' or null clears.
+function setStateFilter(table, key) {
+  const next = (!key || key === 'all' || activeFilter(table) === key) ? null : key;
+  if (next) stateFilters[table] = next; else delete stateFilters[table];
+  saveFilters();
+  if (currentData) renderAll(currentData);
+}
+
+function clearStateFilter(table) { setStateFilter(table, null); }
+
+function applyStateFilter(table, entries, stateKey) {
+  const key = activeFilter(table);
+  if (!key) return entries;
+  return entries.filter(e => filterMatches(key, e[stateKey]));
+}
+
+// Peers keep their identity but only their matching rows; a peer with nothing
+// matching is left out entirely while a filter is active, so the table shows
+// just the category asked for.
+function filterPeers(table, peers, stateKey) {
+  const key = activeFilter(table);
+  if (!key) return peers;
+  return peers
+    .map(p => Object.assign({}, p, {entries: (p.entries || []).filter(e => filterMatches(key, e[stateKey]))}))
+    .filter(p => p.entries.length);
+}
+
+// Highlight the active card and fill the "Showing N of M" line.
+function renderFilterBar(prefix, table, shown, total) {
+  const key = activeFilter(table);
+  document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
+    if (!card.id.startsWith('card-' + prefix + '-')) return;
+    card.classList.toggle('active-filter', card.dataset.filter === key);
+    card.setAttribute('aria-pressed', card.dataset.filter === key ? 'true' : 'false');
+  });
+  const bar = document.getElementById('filter-bar-' + prefix);
+  if (!bar) return;
+  if (!key) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.innerHTML = '<i class="bi bi-funnel-fill"></i> Showing <strong>' + shown + '</strong> of ' +
+    total + ' entries in state ' + badge(key) +
+    ' <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" ' +
+    'onclick="clearStateFilter(\'' + escHtml(table) + '\')">Reset filter</button>';
+  bar.hidden = false;
+}
+
+// Make every filterable card for `prefix` respond to click and keyboard.
+function installStatFilters(prefix, table) {
+  document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
+    if (!card.id.startsWith('card-' + prefix + '-')) return;
+    const act = () => setStateFilter(table, card.dataset.filter);
+    card.addEventListener('click', act);
+    card.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); act(); }
+    });
+  });
+}
+
+// Entries across the local list and every peer, for the "of M" figure.
+function totalEntries(entries, peers) {
+  return (entries || []).length +
+    (peers || []).reduce((n, p) => n + (p.entries ? p.entries.length : 0), 0);
+}
+
 // ---- stat cards ------------------------------------------------------
 function renderStatCards(prefix, counts) {
   for (const [key, value] of Object.entries(counts || {})) {

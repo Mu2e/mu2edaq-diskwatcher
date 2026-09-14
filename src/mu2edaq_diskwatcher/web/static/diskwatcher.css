@@ -30,6 +30,19 @@ body { background: #f8f9fa; }
 .text-unmonitored-state { color: #adb5bd; }
 .text-total-state       { color: #0d6efd; }
 
+/* Cards that filter the table.  The active one carries the accent ring; the
+   pointer cursor and hover lift tell the operator they are controls. */
+.stat-card.stat-filter { cursor: pointer; transition: box-shadow .1s, transform .1s; }
+.stat-card.stat-filter:hover { box-shadow: 0 .25rem .5rem rgba(0,0,0,.08); transform: translateY(-1px); }
+.stat-card.stat-filter:focus-visible { outline: 2px solid #0d6efd; outline-offset: 2px; }
+.stat-card.active-filter { box-shadow: 0 0 0 2px #0d6efd; }
+.stat-card.active-filter .text-muted::after { content: " \\00b7 filtering"; color: #0d6efd; }
+
+.filter-bar { display: flex; align-items: center; gap: .35rem; color: #495057; }
+.filter-bar .badge { font-size: .75em; vertical-align: middle; }
+
+.group-controls .btn { white-space: nowrap; }
+
 /* ---- status badges --------------------------------------------------- */
 .badge-ok,
 .badge-good     { background-color: #198754 !important; color: #fff !important; }

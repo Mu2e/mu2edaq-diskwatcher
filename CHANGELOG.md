@@ -17,6 +17,16 @@ Not yet tagged. On branch `feature/peer-federation`.
 
 ### Added
 
+- **Disk Space cards filter the table.** Clicking the WARNING, CRITICAL, FULL
+  or UNAVAILABLE card shows only entries in that category, across local hosts
+  and peers; the cards keep their unfiltered counts, a line under them says
+  "Showing N of M" with a *Reset filter* link, and clicking the same card
+  again or the TOTAL card clears it. The choice is remembered in the browser
+  like the group collapse state. GOOD stays a plain counter.
+- **Expand all / Collapse all / Auto** buttons in the Disk Space table header
+  roll every host and peer group up or open at once. They write the same
+  per-group overrides a header click does, so a poll cannot undo them; *Auto*
+  forgets every manual choice on the page and groups follow their health again.
 - **Peer federation.** A `peers:` list in the YAML names other diskwatcher
   instances. Each peer's `/api/state` is fetched over HTTP on its own daemon
   thread, concurrently and with a per-fetch timeout, so a dead peer never
