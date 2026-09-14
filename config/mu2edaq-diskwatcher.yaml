@@ -92,23 +92,27 @@ watcher:
 #             MU2EDAQ_DISKWATCHER_DISCOVER_PEERS=1
 #             MU2EDAQ_DISKWATCHER_DISCOVER_FILTER="host=mu2e-dl-*"
 #
-# Two shapes are accepted: a bare list (static peers only), or a mapping with
-# "static:" and "discover:".
-peers: []
-#peers:
-#  static:
-#    - url:     http://mu2e-dl-01.fnal.gov:5002
-#      label:   "mu2e-dl-01"      # shown in the group heading; default: host:port
-#      timeout: 5                 # seconds; default: watcher.peer_timeout
-#      enabled: true              # false lists the peer on /config but never fetches it
-#    - mu2e-dl-02.fnal.gov:5002   # bare URL form
-#  discover:
-#    enabled:  true
-#    filter:   {app: diskwatcher, host: "mu2e-dl-*"}
-#    interval: 60                 # seconds between scans; default: peer_interval
-#    timeout:  2.0                # seconds a scan waits for replies
-#    grace:    180                # seconds unseen before a peer is dropped; default: 3*interval
-#    exclude:  ["mu2e-dl-99"]     # host globs never to federate
+# Two shapes are accepted: a bare list (static peers only), or the mapping
+# below with "static:" and "discover:".  The block is live, with nothing
+# listed and discovery off, so enabling either is a one-value edit: add a URL
+# under static:, or set discover.enabled to true.  (Do not uncomment part of a
+# block: an indented key under a commented-out header, or after "peers: []",
+# is a YAML parse error that stops the daemon starting.)
+peers:
+  static: []
+  # static:
+  #   - url:     http://mu2e-dl-01.fnal.gov:5002
+  #     label:   "mu2e-dl-01"      # shown in the group heading; default: host:port
+  #     timeout: 5                 # seconds; default: watcher.peer_timeout
+  #     enabled: true              # false lists the peer on /config but never fetches it
+  #   - mu2e-dl-02.fnal.gov:5002   # bare URL form
+  discover:
+    enabled:  false              # true: scan for other diskwatchers and federate them
+    filter:   {app: diskwatcher} # add host: "mu2e-dl-*" to limit it to a set of nodes
+    #interval: 60                # seconds between scans; default: watcher.peer_interval
+    timeout:  2.0                # seconds a scan waits for replies
+    #grace:    180               # seconds unseen before a peer is dropped; default: 3*interval
+    exclude:  []                 # host globs never to federate, e.g. ["mu2e-dl-99"]
 
 
 # ---------------------------------------------------------------------------

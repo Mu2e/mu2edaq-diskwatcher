@@ -74,6 +74,33 @@ def test_shim_still_exists():
     assert "mu2edaq_diskwatcher.cli" in shim.read_text()
 
 
+# ---- shipped configuration files ----------------------------------------
+# An operator edits these in place; a parse error in one stops the daemon
+# from starting at all. Observed for real: uncommenting the `discover:`
+# sub-block of an example while its `peers:` header stayed commented.
+@pytest.mark.parametrize("name", sorted(p.name for p in (REPO / "config").glob("*.yaml")))
+def test_shipped_config_parses_and_is_clean(name):
+    import yaml
+    from mu2edaq_diskwatcher.config import entries_from_config, peers_from_config
+    cfg = yaml.safe_load((REPO / "config" / name).read_text()) or {}
+    assert isinstance(cfg, dict), name
+    static, discover, peer_issues = peers_from_config(cfg)
+    assert peer_issues == [], (name, peer_issues)
+    assert isinstance(discover, dict) and "enabled" in discover
+    entries, issues = entries_from_config(cfg, default_delay=300)
+    assert issues == [], (name, issues)
+    assert entries or static or discover["enabled"], f"{name} watches nothing"
+
+
+def test_default_config_ships_with_discovery_present_but_off():
+    """The block must be live YAML, not a commented example, so turning
+    discovery on is a one-value edit and never a parse error."""
+    import yaml
+    cfg = yaml.safe_load((REPO / "config" / "mu2edaq-diskwatcher.yaml").read_text())
+    assert cfg["peers"]["discover"]["enabled"] is False
+    assert cfg["peers"]["static"] == []
+
+
 # ---- changelog ---------------------------------------------------------
 # A changelog's failure mode is drifting out of date without anyone noticing,
 # so the two things that can be checked mechanically are checked here. Whether

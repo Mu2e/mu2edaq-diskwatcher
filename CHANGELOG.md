@@ -93,6 +93,13 @@ Not yet tagged. On branch `feature/peer-federation`.
   `/api/peers` gains `discovery` (last scan time, responders, set-aside counts
   by reason, error, the discovered URLs) and `/config` a Peer Discovery card.
   A flat `peers:` list still means static peers only.
+
+  The shipped `config/mu2edaq-diskwatcher.yaml` carries the `peers:` mapping
+  as live YAML with `static: []` and `discover.enabled: false`, so turning
+  either on is a one-value edit. It had been a commented example under a live
+  `peers: []`, and uncommenting only the `discover:` sub-block produced a YAML
+  parse error at startup on `mu2e-mgr-01`. A test now loads every shipped
+  config and requires it to parse without configuration issues.
 - **`/api/peers`**: connection status of every configured peer, without
   entries, plus per-peer watch/space/size summaries and a `counts` total.
 - **`hostname` and `instance_id`** on `/api/state` and `/api/version`;
