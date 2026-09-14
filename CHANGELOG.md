@@ -150,6 +150,16 @@ Not yet tagged. On branch `feature/peer-federation`.
   checks the 27 files against the template and that a dry run of the generator
   names exactly them. `mu2e-dl-01` keeps its hand-written file, which also
   watches `/home`.
+- **`tools/diskwatcher-fleet.sh`** (`man diskwatcher-fleet`): `start`
+  (default), `stop`, `status` or `list` for every node that has a config
+  file, over ssh, in parallel batches, one line per node and a summary; exit
+  3 if any node failed. `start` runs the per-node start script and then
+  fetches the node's `/api/health`, allowing up to 30 s for the first poll.
+  Options for user, checkout path, port, jump host (`-J`, for running from
+  outside the DAQ network), exclusions and batch size; `--dry-run` prints the
+  ssh commands. Batches rather than `wait -n` so it also runs under macOS's
+  bash 3.2. Tests cover the node-to-config mapping and the dry-run commands
+  without ever invoking ssh.
 - **`tests/test_peers.py`**, driving the client against a real loopback HTTP
   server: refused, timed out, HTTP error, not JSON, not a diskwatcher payload,
   oversized, self-reference, retained data across a failure and recovery,

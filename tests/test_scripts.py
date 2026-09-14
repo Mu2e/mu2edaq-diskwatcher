@@ -212,6 +212,77 @@ def test_legacy_script_names_are_gone():
         assert not (REPO / name).exists(), f"{name} should not exist"
 
 
+# ---- fleet script -----------------------------------------------------------
+# Never touches ssh in tests: everything below is --dry-run or `list`.
+FLEET = REPO / "tools" / "diskwatcher-fleet.sh"
+
+
+def fleet(*argv):
+    return subprocess.run(["bash", str(FLEET), *argv], capture_output=True,
+                          text=True, timeout=60, cwd=str(REPO))
+
+
+def test_fleet_script_parses():
+    assert subprocess.run(["bash", "-n", str(FLEET)]).returncode == 0
+
+
+def test_fleet_list_covers_every_node_config_plus_dl_01():
+    result = fleet("list")
+    assert result.returncode == 0, result.stderr
+    rows = dict(line.split(None, 1) for line in result.stdout.splitlines())
+    assert len(rows) == 28, sorted(rows)
+    assert rows["mu2e-dl-01"] == "config/mu2e-diskwatcher-dl-01.yaml"
+    assert rows["mu2e-trk-14"] == "config/nodes/mu2e-diskwatcher-trk-14.yaml"
+    assert rows["mu2e-calo-01"] == "config/nodes/mu2e-diskwatcher-calo-01.yaml"
+    assert rows["mu2egateway01"] == "config/nodes/mu2e-diskwatcher-mu2egateway01.yaml"
+    assert "(no config file)" not in result.stdout
+
+
+def test_fleet_dry_run_start_builds_the_right_remote_command():
+    result = fleet("-n", "-u", "mu2eshift", "-d", "/home/mu2eshift/mu2edaq-diskwatcher",
+                   "-p", "5010", "mu2e-trk-03.fnal.gov")
+    assert result.returncode == 0, result.stderr
+    (line,) = [l for l in result.stdout.splitlines() if l.startswith("mu2e-trk-03")]
+    assert "DRY ssh mu2eshift@mu2e-trk-03.fnal.gov" in line
+    assert "cd /home/mu2eshift/mu2edaq-diskwatcher" in line
+    assert ("CRS_PORT_HTTP=5010 ./start-mu2edaq-diskwatcher.sh -c "
+            "config/nodes/mu2e-diskwatcher-trk-03.yaml") in line
+    # Verification: a wait loop, then a final check whose exit status decides,
+    # because a bash `for` loop's own status is that of its last `sleep`.
+    assert line.count("localhost:5010/api/health") == 2
+    assert line.rstrip().endswith("curl -sf --max-time 3 localhost:5010/api/health")
+    assert "summary: 1 ok, 0 failed/unreachable, 0 skipped" in result.stdout
+
+
+def test_fleet_dry_run_stop_and_status_and_flags():
+    jump = fleet("status", "-n", "-J", "mu2egateway01.fnal.gov", "mu2e-crv-01", "mu2egateway01")
+    assert "DRY ssh -J mu2egateway01.fnal.gov mu2e-crv-01.fnal.gov" in jump.stdout
+    # The jump host is a node too; ssh refuses to jump through it to itself.
+    assert "DRY ssh mu2egateway01.fnal.gov curl" in jump.stdout
+    stop = fleet("stop", "-n", "mu2e-crv-01")
+    assert "./stop-mu2edaq-diskwatcher.sh" in stop.stdout and "start-" not in stop.stdout
+    status = fleet("status", "-n", "mu2e-crv-01")
+    assert "curl -sf --max-time 5 localhost:5002/api/health" in status.stdout
+    no_verify = fleet("-n", "--no-verify", "--no-replace", "mu2e-crv-01")
+    assert "/api/health" not in no_verify.stdout and "--no-replace" in no_verify.stdout
+
+
+def test_fleet_exclude_and_unknown_node():
+    result = fleet("list", "-x", "mu2e-dl-01", "-x", "mu2e-dl-02.fnal.gov")
+    assert "mu2e-dl-01" not in result.stdout and "mu2e-dl-02" not in result.stdout
+    assert len(result.stdout.splitlines()) == 26
+    result = fleet("-n", "mu2e-nope-99")
+    assert result.returncode == 0
+    assert "SKIP no config file for mu2e-nope-99" in result.stdout
+    assert "1 skipped" in result.stdout
+
+
+def test_fleet_rejects_bad_usage():
+    assert fleet("--bogus").returncode == 1
+    assert fleet("-j", "0", "list").returncode == 1
+    assert fleet("list", "-x", "mu2e-dl-01", "mu2e-dl-01").returncode == 1   # nothing left
+
+
 # ---- replace-on-start --------------------------------------------------
 def test_start_reports_no_running_copy_when_idle(tmp_path):
     cfg = tmp_path / "c.yaml"

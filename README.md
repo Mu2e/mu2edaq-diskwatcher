@@ -199,6 +199,26 @@ lost its `GENERATED` header line is treated as hand-edited and skipped unless
 which is the right answer for an unmounted DAQ volume; remove the entry from
 that node's file if the area genuinely does not exist there.
 
+### Starting the whole fleet
+
+`tools/diskwatcher-fleet.sh` runs the per-node start or stop script over ssh
+on every node that has a config file, several at a time, and prints one line
+per node plus a summary. It is meant to run from `mu2e-mgr-01`, where the
+checkout is the shared NFS directory and the shift account reaches every node
+without a prompt, but works from anywhere with the same access.
+
+```bash
+tools/diskwatcher-fleet.sh                 # start everywhere, then verify /api/health
+tools/diskwatcher-fleet.sh status          # who is up, at what version, how stale
+tools/diskwatcher-fleet.sh stop -x mu2e-dl-01
+tools/diskwatcher-fleet.sh start -j 4 mu2e-trk-0{1..9} mu2e-trk-1{0..4}
+tools/diskwatcher-fleet.sh status -J mu2egateway01.fnal.gov -u mu2eshift \
+    -d /home/mu2eshift/mu2edaq-diskwatcher    # from outside, via the gateway
+```
+
+`list` prints the node-to-config mapping. Exit status 3 means at least one
+node failed or was unreachable. See `man diskwatcher-fleet`.
+
 ### Peers: aggregating other instances
 
 Every DAQ node runs its own diskwatcher against its own disks. A `peers:` list
@@ -464,9 +484,10 @@ CHANGELOG.md                       what changed in each release
 config/mu2edaq-diskwatcher.yaml    configuration, heavily commented
 config/nodes/                      one generated config per DAQ node, plus the template
 tools/make-node-configs.sh         regenerates config/nodes/ from the template
+tools/diskwatcher-fleet.sh         start / stop / status on every node over ssh
 run/<host>/                        per-node pid file and log (git-ignored)
 lib/diskwatcher-proc.sh            process discovery shared by start and stop
-man/                               mu2edaq-diskwatcher.1, .conf.5, make-node-configs.1
+man/                               mu2edaq-diskwatcher.1, .conf.5, make-node-configs.1, diskwatcher-fleet.1
 tests/                             pytest suite
 src/mu2edaq_diskwatcher/
     settings.py    process-wide settings singleton (defaults→YAML→env→CLI)

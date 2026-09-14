@@ -1,0 +1,211 @@
+.TH DISKWATCHER\-FLEET 1 "September 2026" "mu2edaq-diskwatcher 1.3.0" "Mu2e DAQ Utilities"
+.SH NAME
+diskwatcher\-fleet.sh \- start, stop or check mu2edaq\-diskwatcher on every DAQ node
+.SH SYNOPSIS
+.B tools/diskwatcher\-fleet.sh
+[\fBstart\fR | \fBstop\fR | \fBstatus\fR | \fBlist\fR]
+[\fIOPTIONS\fR]
+[\fIHOST\fR ...]
+.SH DESCRIPTION
+Runs the per-node
+.B start\-mu2edaq\-diskwatcher.sh
+or
+.B stop\-mu2edaq\-diskwatcher.sh
+over
+.BR ssh (1)
+on each DAQ node, several nodes at a time, and prints one line per node and a
+summary.
+It is meant to be run from
+.B mu2e\-mgr\-01
+but works from any machine whose ssh reaches the nodes without a prompt.
+.PP
+The checkout is a shared NFS directory, so the same path is used on every node
+(the directory this script lives in, unless
+.B \-\-dir
+says otherwise) and each node writes its runtime files under its own
+.BR run/ \fIhost\fR/
+inside it.
+.PP
+With no
+.I HOST
+arguments, every node that has a generated file in
+.B config/nodes/
+is used, plus
+.B mu2e\-dl\-01
+with its hand-written
+.BR config/mu2e\-diskwatcher\-dl\-01.yaml .
+A node's config is looked up by name:
+.IR config/nodes/mu2e\-diskwatcher\- short .yaml
+first, then the same name under
+.BR config/ .
+A node with no config file is skipped and reported.
+.SH ACTIONS
+.TP
+.B start
+The default.
+Starts the daemon on each node, replacing any copy already running there, then
+fetches
+.B /api/health
+on the node and reports its status, version, entry count and poll age.
+The web server binds only after the first poll completes, so the check allows
+up to 30 seconds.
+.TP
+.B stop
+Stops the daemon on each node.
+.TP
+.B status
+Fetches
+.B /api/health
+on each node without changing anything.
+A node that does not answer on the port is reported
+.BR DOWN .
+.TP
+.B list
+Prints the node-to-config mapping and exits.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-dry\-run
+Print the ssh command for each node; run nothing.
+.TP
+.BR \-j ", " \-\-jobs " " \fIN\fR
+Nodes to work on at once.
+Default:
+.BR 8 .
+.TP
+.BR \-u ", " \-\-user " " \fIUSER\fR
+Log in as
+.I USER
+instead of the current user.
+.TP
+.BR \-d ", " \-\-dir " " \fIPATH\fR
+Checkout path on the nodes.
+Default: this checkout's own path.
+.TP
+.BR \-D ", " \-\-domain " " \fIDOMAIN\fR
+Domain appended to short names.
+Default:
+.BR fnal.gov .
+.TP
+.BR \-p ", " \-\-port " " \fIPORT\fR
+Dashboard port, forwarded to the start script as
+.B CRS_PORT_HTTP
+and used by
+.BR status .
+Default:
+.B $CRS_PORT_HTTP
+or
+.BR 5002 .
+.TP
+.BR \-t ", " \-\-timeout " " \fISECONDS\fR
+ssh connect timeout.
+Default:
+.BR 10 .
+.TP
+.BR \-J ", " \-\-jump " " \fIHOST\fR
+Reach the nodes through
+.I HOST
+.RB ( "ssh \-J" ),
+for running from outside the DAQ network, e.g.
+.BR "\-J mu2egateway01.fnal.gov" .
+.TP
+.BR \-x ", " \-\-exclude " " \fIHOST\fR
+Skip
+.IR HOST ;
+may be repeated.
+.TP
+.BR \-i ", " \-\-interactive
+Allow ssh to prompt for passwords or host keys.
+By default
+.B BatchMode=yes
+is set so an unreachable or unauthenticated node fails fast instead of hanging
+the batch.
+Unknown host keys are still accepted
+.RB ( StrictHostKeyChecking=accept-new );
+a node reported as
+.B "UNREACHABLE Host key verification failed"
+has a key that
+.I changed
+since it was last recorded in
+.BR ~/.ssh/known_hosts ,
+typically after a reinstall, and needs that entry removed.
+.PP
+When
+.B \-\-jump
+names a host that is itself in the node list (the gateways are), that node is
+reached directly rather than through itself.
+.TP
+.B \-\-no\-verify
+After
+.BR start ,
+do not fetch
+.B /api/health
+from each node.
+.TP
+.B \-\-no\-replace
+Forward
+.B \-\-no\-replace
+to the start script, so a node already running is left alone and reported as
+failed rather than restarted.
+.SH OUTPUT
+One line per node, in node order within each batch:
+.PP
+.nf
+    mu2e-trk-03      OK ok v1.3.0, 8 entries, poll 2.1s ago, up 4s, 0 config issue(s), peers 0/0 ok
+    mu2e-calo-07     UNREACHABLE ssh: connect to host ... Connection timed out
+    mu2egateway02    FAILED exit 1: error: config file not found: ...
+    mu2e-crv-01      DOWN no answer on port 5002 (curl exit 7)
+.fi
+.PP
+followed by
+.BR "summary: N ok, N failed/unreachable, N skipped" .
+.SH EXIT STATUS
+.TP
+.B 0
+Every selected node succeeded.
+.TP
+.B 1
+Usage error, or no nodes selected.
+.TP
+.B 3
+At least one node failed, was unreachable, or (for
+.BR status )
+was down.
+.SH EXAMPLES
+Start the watcher everywhere from
+.BR mu2e\-mgr\-01 :
+.PP
+.nf
+    tools/diskwatcher\-fleet.sh
+.fi
+.PP
+Check the fleet:
+.PP
+.nf
+    tools/diskwatcher\-fleet.sh status
+.fi
+.PP
+Restart only the tracker nodes, four at a time:
+.PP
+.nf
+    tools/diskwatcher\-fleet.sh start \-j 4 mu2e\-trk\-0{1..9} mu2e\-trk\-1{0..4}
+.fi
+.PP
+Stop everything except the data loggers:
+.PP
+.nf
+    tools/diskwatcher\-fleet.sh stop \-x mu2e\-dl\-01 \-x mu2e\-dl\-02
+.fi
+.PP
+From a laptop outside the DAQ network, as the shift account, through the
+gateway, with the checkout at its NFS path:
+.PP
+.nf
+    tools/diskwatcher\-fleet.sh status \-J mu2egateway01.fnal.gov \-u mu2eshift \\
+        \-d /home/mu2eshift/mu2edaq\-diskwatcher
+.fi
+.SH SEE ALSO
+.BR mu2edaq\-diskwatcher (1),
+.BR make\-node\-configs (1),
+.BR ssh (1)
+.SH AUTHORS
+Mu2e DAQ group, Fermi National Accelerator Laboratory.
