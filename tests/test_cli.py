@@ -72,6 +72,11 @@ def test_missing_config_argument_is_reported_against_config(capsys):
     assert "--config" in capsys.readouterr().err
 
 
+def test_run_dir_flag_defaults_to_none_so_the_yaml_value_survives():
+    assert parse([]).run_dir is None
+    assert parse(["--run-dir", "/x/{host}"]).run_dir == "/x/{host}"
+
+
 def test_peer_flags_default_to_none_and_repeat():
     args = parse([])
     assert args.peers is None and args.no_peers is None

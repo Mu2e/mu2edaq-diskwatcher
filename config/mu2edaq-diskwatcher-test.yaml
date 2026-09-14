@@ -22,8 +22,9 @@ watcher:
   poll_interval: 30          # Seconds between checks
   default_delay: 300         # Staleness threshold for entries that omit "delay"
   daemon:        false       # Set to true to run as a background daemon (POSIX only)
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
-  log_file:      "./config/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
+  run_dir:       "run/{host}"                          # per-node; {host} = short hostname
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
 
 
 # ---------------------------------------------------------------------------

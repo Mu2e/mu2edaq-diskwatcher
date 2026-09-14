@@ -1,4 +1,14 @@
-from mu2edaq_diskwatcher.settings import ENV_PREFIX, Settings, get_settings, reset_settings
+from mu2edaq_diskwatcher.settings import (
+    DEFAULT_LOG_FILE,
+    DEFAULT_PID_FILE,
+    ENV_PREFIX,
+    Settings,
+    expand_path,
+    get_settings,
+    path_placeholders,
+    reset_settings,
+    short_hostname,
+)
 
 
 def test_apply_ignores_none():
@@ -97,6 +107,74 @@ def test_env_peer_timeout_and_interval():
     assert settings.apply_env({ENV_PREFIX + "PEER_TIMEOUT": "2.5",
                                ENV_PREFIX + "PEER_INTERVAL": "60"}) == []
     assert settings.peer_timeout == 2.5 and settings.peer_interval == 60
+
+
+# ------------------------------------------------------- per-node run paths
+# The checkout is shared over NFS between DAQ nodes, so anything a process
+# writes must be keyed by node.  These pin the placeholder mechanism the pid
+# file, log and future state all rely on.
+
+def test_short_hostname_has_no_domain_and_is_never_empty():
+    node = short_hostname()
+    assert node and "." not in node
+
+
+def test_placeholders_cover_the_documented_set():
+    values = path_placeholders(5010, run_dir="run/x")
+    assert set(values) == {"host", "hostname", "port", "user", "run_dir"}
+    assert values["port"] == "5010" and values["run_dir"] == "run/x"
+    assert "run_dir" not in path_placeholders(5010)      # absent while resolving run_dir
+
+
+def test_expand_path_substitutes_known_and_keeps_unknown():
+    out = expand_path("/x/{host}-{port}/{nope}/{run_dir}", {"host": "n1", "port": "5"})
+    assert out == "/x/n1-5/{nope}/{run_dir}"           # unknown stays visible
+    assert expand_path(None, {"host": "n1"}) is None
+
+
+def test_resolve_paths_keys_everything_by_node_in_daemon_mode():
+    settings = reset_settings(daemon=True, web_port=5010)
+    settings.resolve_paths()
+    node = short_hostname()
+    assert settings.run_dir == f"run/{node}"
+    assert settings.pid_file == f"run/{node}/mu2edaq-diskwatcher.pid"
+    assert settings.log_file == f"run/{node}/mu2edaq-diskwatcher.log"
+
+
+def test_resolve_paths_leaves_foreground_runs_without_pid_or_log():
+    """Foreground behaviour is unchanged: terminal output, no pid file."""
+    settings = reset_settings()
+    settings.resolve_paths()
+    assert settings.pid_file is None and settings.log_file is None
+    assert settings.run_dir == f"run/{short_hostname()}"
+
+
+def test_resolve_paths_expands_run_dir_first_then_uses_it():
+    settings = reset_settings(run_dir="/var/tmp/dw-{host}-{port}",
+                              pid_file="{run_dir}/p.pid",
+                              log_file="{run_dir}/{user}.log", web_port=7)
+    values = settings.resolve_paths()
+    node = short_hostname()
+    assert settings.run_dir == f"/var/tmp/dw-{node}-7"
+    assert settings.pid_file == f"/var/tmp/dw-{node}-7/p.pid"
+    assert settings.log_file == f"/var/tmp/dw-{node}-7/{values['user']}.log"
+
+
+def test_explicit_pid_and_log_files_are_respected_verbatim():
+    settings = reset_settings(daemon=True, pid_file="/tmp/a.pid", log_file="/tmp/a.log")
+    settings.resolve_paths()
+    assert (settings.pid_file, settings.log_file) == ("/tmp/a.pid", "/tmp/a.log")
+
+
+def test_defaults_are_inside_the_run_dir():
+    assert DEFAULT_PID_FILE.startswith("{run_dir}/")
+    assert DEFAULT_LOG_FILE.startswith("{run_dir}/")
+
+
+def test_env_run_dir_override():
+    settings = reset_settings()
+    assert settings.apply_env({ENV_PREFIX + "RUN_DIR": "/scratch/{host}"}) == []
+    assert settings.run_dir == "/scratch/{host}"
 
 
 def test_peer_interval_falls_back_to_the_poll_interval():

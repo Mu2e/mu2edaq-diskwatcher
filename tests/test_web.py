@@ -433,6 +433,14 @@ def test_config_page_lists_peers(client, federated):
     assert "unreachable" in body and "connected" in body
 
 
+def test_config_page_shows_the_node_and_run_directory(client, populated):
+    from mu2edaq_diskwatcher.settings import short_hostname
+    populated.run_dir = "run/some-node"
+    body = client.get("/config").get_data(as_text=True)
+    assert "run/some-node" in body
+    assert f"<code>{short_hostname()}</code>" in body
+
+
 def test_about_page_counts_peers(client, federated):
     body = client.get("/about").get_data(as_text=True)
     assert "1 connected, 1 unreachable" in body

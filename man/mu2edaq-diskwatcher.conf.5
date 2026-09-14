@@ -62,17 +62,39 @@ Run in the background.
 Default:
 .BR false .
 .TP
+.B run_dir
+Per-node directory for everything the process writes: the pid file, the log,
+and any history or database a future version keeps.
+May contain placeholders; see
+.BR "PATH PLACEHOLDERS" .
+Default:
+.BR run/{host} ,
+relative to the working directory.
+The checkout is commonly on NFS and shared by several DAQ nodes, so the
+default keys the directory by short hostname and two nodes never write the
+same file.
+.TP
 .B pid_file
 Where the daemon writes its process ID.
-Note that
+May contain placeholders.
+Default:
+.BR {run_dir}/mu2edaq\-diskwatcher.pid ,
+applied in daemon mode only; a foreground run writes no pid file.
 .B start\-mu2edaq\-diskwatcher.sh
 passes
-.BR \-\-pid\-file " " ./diskwatcher.pid ,
-which overrides this setting; see
+.B \-\-run\-dir
+and
+.B \-\-pid\-file
+for the same location, so the script and the daemon always agree on where to
+look; see
 .BR mu2edaq\-diskwatcher (1).
 .TP
 .B log_file
 Where the daemon's standard output and error are appended.
+May contain placeholders.
+Default:
+.BR {run_dir}/mu2edaq\-diskwatcher.log ,
+applied in daemon mode only.
 .TP
 .B peer_timeout
 Seconds allowed for one peer's HTTP round trip, unless the peer entry sets its
@@ -93,10 +115,42 @@ watcher:
   poll_interval: 30
   default_delay: 300
   daemon:        false
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"
-  log_file:      "./config/mu2edaq-diskwatcher.log"
+  run_dir:       "run/{host}"
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"
   peer_timeout:  5
 .fi
+.SH PATH PLACEHOLDERS
+.BR run_dir ", " pid_file " and " log_file
+may contain the following, expanded once at startup after every configuration
+layer has been applied:
+.TP
+.B {host}
+The short hostname, e.g.
+.BR mu2e\-dl\-01 .
+.TP
+.B {hostname}
+The hostname exactly as the system reports it, possibly fully qualified.
+.TP
+.B {port}
+The web server port.
+.TP
+.B {user}
+The account running the process.
+.TP
+.B {run_dir}
+The resolved
+.BR run_dir .
+Valid in
+.BR pid_file " and " log_file
+only.
+.PP
+An unrecognised placeholder is left in the path unchanged, so it stays
+visible on the
+.B /config
+page rather than silently disappearing.
+The parent directory of the pid file and the log file is created if it does
+not exist.
 .SH WATCH ENTRIES
 .B files
 and
@@ -499,8 +553,9 @@ watcher:
   poll_interval: 30
   default_delay: 300
   daemon:        false
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"
-  log_file:      "./config/mu2edaq-diskwatcher.log"
+  run_dir:       "run/{host}"          # per node: the checkout is on NFS
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"
 
 files:
   - path:  /var/log/messages

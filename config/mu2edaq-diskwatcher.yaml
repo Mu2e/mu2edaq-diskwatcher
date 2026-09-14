@@ -25,11 +25,23 @@ watcher:
   poll_interval: 30          # Seconds between checks
   default_delay: 300         # Staleness threshold for entries that omit "delay"
   daemon:        false       # Set to true to run as a background daemon (POSIX only)
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"   # PID file written when daemon: true
-  log_file:      "./config/mu2edaq-diskwatcher.log"   # Log file written when daemon: true
-  # start-mu2edaq-diskwatcher.sh passes --pid-file ./diskwatcher.pid, which
-  # overrides pid_file above; it also consults the process table, so it still
-  # finds and stops a running copy whichever PID file was used.
+  #
+  # Everything this process writes goes in a per-node run directory.  This
+  # checkout is usually on NFS and shared by several DAQ nodes, so the pid
+  # file, the log and any future history or database must be keyed by node or
+  # two machines would trample each other.  Placeholders, expanded at startup:
+  #
+  #     {host}      short hostname, e.g. mu2e-dl-01     {hostname}  as reported
+  #     {port}      the web port                        {user}      the account
+  #     {run_dir}   the resolved run_dir (in pid_file and log_file only)
+  #
+  # pid_file and log_file default to the two values shown, inside run_dir, and
+  # are only written in daemon mode.  start-mu2edaq-diskwatcher.sh passes
+  # --run-dir and --pid-file for the same location, so it and the daemon
+  # always agree on where to look.
+  run_dir:       "run/{host}"
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"
   peer_timeout:  5           # Seconds allowed per peer HTTP fetch (see "peers" below)
   #peer_interval: 30         # Seconds between peer fetches; default: poll_interval
 

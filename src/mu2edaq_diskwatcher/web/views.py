@@ -17,7 +17,7 @@ from flask import Blueprint, render_template
 
 from .. import INSTANCE_ID, START_TIME, __version__
 from ..formatting import fmt_duration
-from ..settings import ENV_PREFIX, get_settings
+from ..settings import ENV_PREFIX, get_settings, short_hostname
 from ..state import PEERS, STORE, size_entries, space_entries
 
 bp = Blueprint("views", __name__)
@@ -58,6 +58,8 @@ def config():
         dirs=[e for e in entries if e.get("kind") == "directory"],
         peers=PEERS.snapshot(),
         peer_interval=settings.effective_peer_interval(),
+        node=short_hostname(),
+        cwd=os.getcwd(),
         raw_yaml=raw_yaml,
         env_prefix=ENV_PREFIX,
         fmt_duration=fmt_duration,

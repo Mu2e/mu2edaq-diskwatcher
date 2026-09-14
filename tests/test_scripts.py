@@ -10,6 +10,7 @@ import os
 import pathlib
 import shutil
 import signal
+import socket
 import subprocess
 import time
 
@@ -132,6 +133,86 @@ def test_stop_tolerates_a_garbage_pid_file(pid_file):
     result = sh(STOP, str(pid_file))
     assert result.returncode == 0, result.stderr
     assert "not running" in result.stdout
+
+
+# ---- per-node run directory ---------------------------------------------
+# The checkout is shared over NFS between DAQ nodes. The pid file must be
+# keyed by node or a start on one machine reads the pid another wrote.
+def _node():
+    return subprocess.run(["bash", "-c", f'source "{LIB}"; dw_node'],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_dw_node_is_the_short_hostname():
+    node = _node()
+    assert node and "." not in node
+    assert node == socket.gethostname().split(".")[0]
+
+
+def test_start_defaults_the_pid_file_into_the_node_run_dir(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("watcher: {}\n")
+    result = sh(START, str(cfg), env={"DW_DRY_RUN": "1"})
+    assert result.returncode == 0, result.stderr
+    expected = REPO / "run" / _node()
+    assert f"run dir: {expected}" in result.stdout, result.stdout
+    assert f"pid file: {expected / 'mu2edaq-diskwatcher.pid'}" in result.stdout
+
+
+@pytest.mark.parametrize("how", ["flag", "env"])
+def test_run_dir_can_be_overridden(tmp_path, how):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("watcher: {}\n")
+    run_dir = tmp_path / "elsewhere"
+    if how == "flag":
+        result = sh(START, str(cfg), "--run-dir", str(run_dir), env={"DW_DRY_RUN": "1"})
+    else:
+        result = sh(START, str(cfg), env={"DW_DRY_RUN": "1", "DW_RUN_DIR": str(run_dir)})
+    assert result.returncode == 0, result.stderr
+    assert f"pid file: {run_dir / 'mu2edaq-diskwatcher.pid'}" in result.stdout
+
+
+def test_explicit_pid_file_still_wins_over_the_run_dir(tmp_path):
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("watcher: {}\n")
+    result = sh(START, str(cfg), "--run-dir", str(tmp_path / "rd"),
+                "--pid-file", str(tmp_path / "mine.pid"), env={"DW_DRY_RUN": "1"})
+    assert f"pid file: {tmp_path / 'mine.pid'}" in result.stdout
+
+
+def test_stop_reads_the_pre_1_3_pid_file_too(tmp_path):
+    """Upgrading over a daemon started by an older release must still stop it.
+
+    The legacy location is inside the repo, so this only runs when no real
+    file is there; it never removes one it did not create.
+    """
+    legacy = REPO / "diskwatcher.pid"
+    if legacy.exists():
+        pytest.skip("a real legacy pid file is present")
+    fake = subprocess.Popen(["python3", "-c",
+                             "import time; time.sleep(300)  # diskwatcher.py"])
+    try:
+        legacy.write_text(str(fake.pid))
+        result = sh(STOP, str(tmp_path / "unused.pid"), env={"CRS_STOP_TIMEOUT": "5"})
+        assert result.returncode == 0, result.stderr
+        fake.wait(timeout=15)
+        assert not legacy.exists()
+    finally:
+        if fake.poll() is None:
+            fake.kill()
+        fake.wait(timeout=10)
+        if legacy.exists():
+            legacy.unlink()
+
+
+def test_legacy_script_names_are_links_to_the_real_ones():
+    """The pre-t00.01.00 names must keep tracking the standardised scripts,
+    or a per-node change like this one would silently miss whoever still
+    calls them."""
+    for name, target in (("start_diskwatcher.sh", START), ("stop_diskwatcher.sh", STOP)):
+        link = REPO / name
+        assert link.is_symlink(), f"{name} should be a symlink"
+        assert link.resolve() == target.resolve(), name
 
 
 # ---- replace-on-start --------------------------------------------------

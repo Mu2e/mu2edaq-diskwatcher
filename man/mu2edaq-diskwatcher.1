@@ -10,6 +10,7 @@ with embedded web dashboard
 [\fB\-\-poll\-interval\fR \fISECONDS\fR]
 [\fB\-\-default\-delay\fR \fISECONDS\fR]
 [\fB\-\-daemon\fR]
+[\fB\-\-run\-dir\fR \fIDIR\fR]
 [\fB\-\-pid\-file\fR \fIFILE\fR]
 [\fB\-\-log\-file\fR \fIFILE\fR]
 [\fB\-\-peer\fR \fIURL\fR ...]
@@ -136,16 +137,35 @@ Detach from the terminal and run in the background (POSIX only).
 See
 .BR "DAEMON MODE" .
 .TP
+.BR \-\-run\-dir " " \fIDIR\fR
+Per-node directory for everything the process writes.
+Overrides
+.BR watcher.run_dir .
+Default:
+.BR run/{host} .
+See
+.BR "PER-NODE RUNTIME FILES" .
+.TP
 .BR \-\-pid\-file " " \fIFILE\fR
 Write the daemon's process ID to
 .IR FILE .
 The file is removed at exit.
+Default in daemon mode:
+.BR {run_dir}/mu2edaq\-diskwatcher.pid .
 .TP
 .BR \-\-log\-file " " \fIFILE\fR
 Redirect the daemon's standard output and standard error to
 .IR FILE ,
 opened in append mode.
-Without this, daemon output is discarded.
+Default in daemon mode:
+.BR {run_dir}/mu2edaq\-diskwatcher.log .
+.PP
+All three paths accept the placeholders
+.BR {host} ", " {hostname} ", " {port} ", " {user}
+and (except
+.BR \-\-run\-dir " itself) " {run_dir} ;
+see
+.BR mu2edaq\-diskwatcher.conf (5).
 .TP
 .BR \-\-peer " " \fIURL\fR
 Add a peer diskwatcher to aggregate; may be repeated.
@@ -224,6 +244,9 @@ Accepts
 .BR 1 ", " true ", " yes ", " on
 and their negatives.
 .TP
+.B MU2EDAQ_DISKWATCHER_RUN_DIR
+Per-node runtime directory.
+.TP
 .B MU2EDAQ_DISKWATCHER_PID_FILE
 Daemon PID file.
 .TP
@@ -250,14 +273,16 @@ Seconds between peer fetches.
 The start and stop scripts additionally read
 .B CRS_PORT_HTTP
 (mapped to
-.BR \-\-port )
-and
+.BR \-\-port ),
 .BR CRS_STOP_TIMEOUT ,
 the seconds to wait after
 .B SIGTERM
 before sending
 .BR SIGKILL ,
-default 10.
+default 10, and
+.BR DW_RUN_DIR ,
+the per-node run directory, default
+.BR ./run/ \fIshort-hostname\fR.
 See
 .BR "START AND STOP SCRIPTS" .
 .SH SIZE UNITS
@@ -440,6 +465,42 @@ Every JSON list endpoint returns local entries only unless
 .B ?peers=1
 is added; see
 .BR "JSON endpoints" .
+.SH PER-NODE RUNTIME FILES
+The checkout this program runs from is commonly on NFS, shared by several DAQ
+nodes, each running its own copy against its own disks.
+Everything a copy writes is therefore kept in a per-node run directory,
+.B watcher.run_dir
+(default
+.BR run/{host} ,
+where
+.B {host}
+is the short hostname), so that no two nodes read each other's pid file or
+append to one log.
+The pid file and log default to
+.B mu2edaq\-diskwatcher.pid
+and
+.B mu2edaq\-diskwatcher.log
+inside it, in daemon mode only; a foreground run behaves as before.
+Any history or database a future version keeps belongs there too.
+.PP
+The start and stop scripts use the same directory
+.RB ( ./run/ \fIshort-hostname\fR,
+or
+.BR DW_RUN_DIR ,
+or
+.BR \-\-run\-dir ),
+and pass it to the daemon, so what the script looks for is what the daemon
+wrote.
+Both scripts also read the pre-1.3.0 location
+.B ./diskwatcher.pid
+so that a daemon started by an older release is still found and replaced.
+The process-table sweep needs no such care: it only ever sees processes on
+the node it runs on.
+.PP
+Placeholders are listed in
+.BR mu2edaq\-diskwatcher.conf (5),
+section
+.BR "PATH PLACEHOLDERS" .
 .SH DAEMON MODE
 With
 .BR \-\-daemon ,
@@ -492,9 +553,17 @@ unchanged.
 .B \-\-no\-replace
 Exit with an error if a copy is already running, instead of replacing it.
 .TP
+.BR \-\-run\-dir " " \fIDIR\fR
+Per-node run directory instead of
+.BR ./run/ \fIshort-hostname\fR.
+Also settable as
+.BR DW_RUN_DIR .
+Passed to the daemon as
+.BR \-\-run\-dir .
+.TP
 .BR \-\-pid\-file " " \fIFILE\fR
 PID file to use instead of
-.BR ./diskwatcher.pid .
+.IR run-dir /mu2edaq\-diskwatcher.pid .
 The same path is used both to look for a running copy and, as
 .BR \-\-pid\-file ,
 for the daemon to write, so the next start reads the file this one wrote.
@@ -549,7 +618,7 @@ for the complete reference.
 .SS watcher
 Server settings:
 .BR web_host ", " web_port ", " poll_interval ", " default_delay ", " daemon ", "
-.BR pid_file ", " log_file ", " peer_timeout ", " peer_interval .
+.BR run_dir ", " pid_file ", " log_file ", " peer_timeout ", " peer_interval .
 .SS peers
 A list of peer diskwatchers.
 Each entry accepts
@@ -592,8 +661,9 @@ watcher:
   poll_interval: 30
   default_delay: 300
   daemon:        false
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"
-  log_file:      "./config/mu2edaq-diskwatcher.log"
+  run_dir:       "run/{host}"          # per node: the checkout is on NFS
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"
 
 files:
   # staleness only, exactly as in earlier versions
@@ -834,8 +904,12 @@ Packaging metadata; installs the
 .B mu2edaq\-diskwatcher
 console script.
 .TP
+.B ./run/\fIshort-hostname\fR/
+Per-node run directory: pid file, log, and any future persistent state.
+.TP
 .B ./diskwatcher.pid
-Default PID file written by the start script.
+Where releases before 1.3.0 wrote the pid file; still read by the start and
+stop scripts.
 .TP
 .B ./start\-mu2edaq\-diskwatcher.sh
 Control-room start script; replaces any copy already running.
@@ -856,12 +930,20 @@ Run in the foreground on the default port:
     mu2edaq\-diskwatcher \-\-config config/mu2edaq\-diskwatcher.yaml
 .fi
 .PP
-Run as a daemon on port 8080 with a log file:
+Run as a daemon on port 8080 with the pid file and log under
+.B run/\fIshort-hostname\fR/
+(the defaults):
 .PP
 .nf
-    mu2edaq\-diskwatcher \-c watch.yaml \-p 8080 \-\-daemon \\
-        \-\-pid\-file /var/run/diskwatcher.pid \\
-        \-\-log\-file /var/log/diskwatcher.log
+    mu2edaq\-diskwatcher \-c watch.yaml \-p 8080 \-\-daemon
+.fi
+.PP
+Keep the runtime files on node-local disk instead, still keyed by node and
+port so several instances cannot collide:
+.PP
+.nf
+    mu2edaq\-diskwatcher \-c watch.yaml \-\-daemon \\
+        \-\-run\-dir /var/run/diskwatcher\-{host}\-{port}
 .fi
 .PP
 Override the port from the environment instead:

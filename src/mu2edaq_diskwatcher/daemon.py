@@ -49,6 +49,8 @@ def daemonize(log_file: str = None) -> None:
 
     # Redirect stdout and stderr to the log file (or /dev/null)
     log_dest = log_file if log_file else os.devnull
+    if log_file:
+        ensure_parent_dir(log_file)
     log_fh   = open(log_dest, "a", buffering=1)   # append; line-buffered text
     os.dup2(log_fh.fileno(), sys.stdout.fileno())
     os.dup2(log_fh.fileno(), sys.stderr.fileno())
@@ -56,9 +58,24 @@ def daemonize(log_file: str = None) -> None:
     sys.stderr = log_fh
 
 
+def ensure_parent_dir(path: str) -> None:
+    """Create the directory holding *path* if it does not exist.
+
+    The default pid and log files live in a per-node run directory that does
+    not exist on a fresh checkout, or on a node that has never run the daemon.
+    Failure is left to the caller's open(), which reports the real error.
+    """
+    parent = os.path.dirname(os.path.abspath(path))
+    try:
+        os.makedirs(parent, exist_ok=True)
+    except OSError:
+        pass
+
+
 def write_pid_file(path: str) -> None:
     """Write the current PID to *path* and register its removal at exit."""
     try:
+        ensure_parent_dir(path)
         with open(path, "w") as fh:
             fh.write(f"{os.getpid()}\n")
         atexit.register(remove_pid_file, path)

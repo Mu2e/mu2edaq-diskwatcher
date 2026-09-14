@@ -78,6 +78,32 @@ Not yet tagged. On branch `feature/peer-federation`.
   Directories tables by host the way `/space` and `/sizes` already did, which
   is what gives the peer groups a place to go. A group opens by default once
   something in it is `stale` or `missing`.
+- **Per-node runtime files for checkouts shared over NFS.** The checkout is
+  usually one NFS directory mounted on every DAQ node, each running its own
+  diskwatcher. Until now every node wrote the same `./diskwatcher.pid`, and
+  the shipped configs pointed every node at the same `config/*.log`, so a
+  start on one node read the pid another had written and logs interleaved.
+  A new `watcher.run_dir` (default `run/{host}`, `{host}` the short hostname)
+  is the per-node home for everything the process writes; `pid_file` and
+  `log_file` default to `mu2edaq-diskwatcher.pid` / `.log` inside it, in
+  daemon mode only. `run_dir`, `pid_file` and `log_file` accept `{host}`,
+  `{hostname}`, `{port}`, `{user}` and (the two files) `{run_dir}`, expanded
+  once after every config layer so `{port}` sees the final port; an unknown
+  placeholder is left visible on `/config` rather than dropped. Parent
+  directories are created on demand. `--run-dir` and
+  `MU2EDAQ_DISKWATCHER_RUN_DIR` override it. The Config page shows the node,
+  working directory and resolved run directory. Any history or database a
+  future version keeps belongs in `run_dir`; nothing of the kind exists yet.
+- **Start and stop scripts use the same per-node directory**
+  (`./run/<short hostname>`, or `DW_RUN_DIR`, or `--run-dir`) and pass it to
+  the daemon as `--run-dir`, so what the script looks for is what the daemon
+  wrote. Both still read the pre-1.3.0 `./diskwatcher.pid`, so upgrading
+  over a running daemon replaces it, and the stop script removes a stale
+  legacy file only when it names nothing alive on this node — on a shared
+  checkout it may belong to another node's daemon. A new `dw_node` helper in
+  `lib/diskwatcher-proc.sh` yields the short hostname with fallbacks. The
+  historical `start_diskwatcher.sh` / `stop_diskwatcher.sh` names are
+  symlinks to these scripts and follow automatically; a test now says so.
 - **`tests/test_peers.py`**, driving the client against a real loopback HTTP
   server: refused, timed out, HTTP error, not JSON, not a diskwatcher payload,
   oversized, self-reference, retained data across a failure and recovery,
@@ -112,6 +138,16 @@ Not yet tagged. On branch `feature/peer-federation`.
 - **`/api/health` `status` is unaffected by peers.** An unreachable peer is a
   fact about that peer, answered by its own `/api/health`; it is reported here
   under `peers` for anyone who wants to alarm on it.
+- **The pid file moved.** The start script used to write `./diskwatcher.pid`;
+  it now writes `./run/<short hostname>/mu2edaq-diskwatcher.pid`, and a
+  `--daemon` run with no `pid_file`/`log_file` configured now writes both
+  defaults there instead of writing no pid file and discarding output. A
+  foreground run is unchanged. Anything reading the old path should use
+  `/api/health` or the new location; the old file is still honoured on stop.
+  Configs that set `pid_file`/`log_file` explicitly keep working as written,
+  but on a shared checkout they should be changed to the `{run_dir}` form
+  the shipped configs now use.
+- `run/` is git-ignored alongside the legacy `diskwatcher.pid`.
 
 ## [t01.00.00] — 1.2.0 — 2026-07-28
 

@@ -14,6 +14,16 @@
 # by hand, or one whose pid file was deleted, which a pid-file-only check would
 # miss and which would then fight the new instance for the port.
 
+# The short hostname, for naming per-node runtime files. `hostname -s` fails
+# on some minimal images, hence the fallback chain; never empty.
+dw_node() {
+  local node
+  node="$(hostname -s 2>/dev/null || true)"
+  [[ -n "$node" ]] || node="$(hostname 2>/dev/null | cut -d. -f1)"
+  [[ -n "$node" ]] || node="${HOSTNAME%%.*}"
+  echo "${node:-localhost}"
+}
+
 # True if $1 is a live process whose command line is this application.
 #
 # `kill -0` alone is NOT sufficient. Pid numbers are recycled, so a pid file

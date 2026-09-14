@@ -21,8 +21,11 @@ watcher:
   poll_interval: 30          # Seconds between checks
   default_delay: 300         # Staleness threshold for entries that omit "delay"
   daemon:        false       # Set to true to run as a background daemon
-  pid_file:      "./config/mu2e-diskwatcher-dl-01.pid"
-  log_file:      "./config/mu2e-diskwatcher-dl-01.log"
+  # Per-node run directory: this file may be launched from a checkout shared
+  # over NFS, so nothing written at runtime may collide with another node.
+  run_dir:       "run/{host}"                          # {host} = short hostname
+  pid_file:      "{run_dir}/mu2e-diskwatcher-dl-01.pid"
+  log_file:      "{run_dir}/mu2e-diskwatcher-dl-01.log"
 
 
 # ---------------------------------------------------------------------------

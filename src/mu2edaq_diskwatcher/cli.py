@@ -27,7 +27,7 @@ from .daemon import daemonize, write_pid_file
 from .discovery import start_responder, stop_responder
 from .peers import peer_loop
 from .poller import do_poll, poll_loop
-from .settings import ENV_PREFIX, get_settings
+from .settings import ENV_PREFIX, get_settings, short_hostname
 from .state import PEERS
 
 #: Config file used when neither --config nor the environment names one.
@@ -68,12 +68,21 @@ def build_parser(defaults) -> argparse.ArgumentParser:
         help="Run as a background daemon (POSIX only)",
     )
     parser.add_argument(
+        "--run-dir", default=None, metavar="DIR",
+        help="Per-node directory for the pid file, log and any other state "
+             f"this process writes (default: {defaults.run_dir}; {{host}} is "
+             "the short hostname)",
+    )
+    parser.add_argument(
         "--pid-file", default=None, metavar="FILE",
-        help="Write daemon PID to FILE (e.g. /tmp/diskwatcher.pid)",
+        help="Write daemon PID to FILE (default: {run_dir}/mu2edaq-diskwatcher.pid "
+             "in daemon mode; placeholders {host} {hostname} {port} {user} "
+             "{run_dir} are expanded)",
     )
     parser.add_argument(
         "--log-file", default=None, metavar="FILE",
-        help="Redirect daemon stdout/stderr to FILE (default: /dev/null)",
+        help="Redirect daemon stdout/stderr to FILE (default: "
+             "{run_dir}/mu2edaq-diskwatcher.log in daemon mode; same placeholders)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", default=None,
@@ -129,6 +138,7 @@ def main() -> None:
         poll_interval = int(wcfg["poll_interval"]) if "poll_interval" in wcfg else None,
         default_delay = int(wcfg["default_delay"]) if "default_delay" in wcfg else None,
         daemon        = bool(wcfg["daemon"])       if "daemon"        in wcfg else None,
+        run_dir       = wcfg.get("run_dir"),
         pid_file      = wcfg.get("pid_file"),
         log_file      = wcfg.get("log_file"),
         peer_timeout  = float(wcfg["peer_timeout"]) if "peer_timeout"  in wcfg else None,
@@ -160,6 +170,7 @@ def main() -> None:
         poll_interval = args.poll_interval,
         default_delay = args.default_delay,
         daemon        = args.daemon or None,      # store_true never means "off"
+        run_dir       = args.run_dir,
         pid_file      = args.pid_file,
         log_file      = args.log_file,
         verbose       = args.verbose,
@@ -170,6 +181,12 @@ def main() -> None:
         # /config page showing the environment's value even when --config won.
         config_path   = config_path if cfg else None,
     )
+
+    # Paths are resolved after every layer, because {port} depends on the
+    # final web port and {run_dir} on the final run_dir.  Anything this
+    # process writes ends up keyed by node, so a checkout shared over NFS by
+    # several DAQ nodes never has two daemons fighting over one pid file.
+    settings.resolve_paths()
 
     # Entries are built last: the delay fallback depends on the final
     # default_delay, which any of the three layers above may have set.
@@ -184,8 +201,8 @@ def main() -> None:
     # ---- daemonize before starting threads ----
     if settings.daemon:
         log_dest = settings.log_file or os.devnull
-        print(f"[Daemon] Daemonizing. Log: {log_dest}  "
-              f"PID file: {settings.pid_file or '(none)'}")
+        print(f"[Daemon] Daemonizing on {short_hostname()}. Run dir: {settings.run_dir}  "
+              f"Log: {log_dest}  PID file: {settings.pid_file or '(none)'}")
         try:
             daemonize(settings.log_file)
         except RuntimeError as exc:

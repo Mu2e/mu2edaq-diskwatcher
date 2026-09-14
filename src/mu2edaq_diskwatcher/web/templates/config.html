@@ -97,12 +97,20 @@
         <tr><th class="ps-3">Daemon mode</th>
             <td>{% if settings.daemon %}<span class="badge bg-success">enabled</span>
                 {% else %}<span class="badge bg-secondary">disabled</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">Node</th>
+            <td><code>{{ node }}</code>
+              <small class="text-muted">working directory <code>{{ cwd }}</code></small></td></tr>
+        <tr><th class="ps-3">Run directory</th>
+            <td><code class="small">{{ settings.run_dir }}</code>
+              <small class="text-muted">per-node home for the pid file, log and any
+                other state this process writes; <code>{host}</code> keys it to the
+                node so a checkout shared over NFS is safe</small></td></tr>
         <tr><th class="ps-3">PID file</th>
             <td>{% if settings.pid_file %}<code class="small">{{ settings.pid_file }}</code>
-                {% else %}<span class="text-muted">(none)</span>{% endif %}</td></tr>
+                {% else %}<span class="text-muted">(none; the run-directory default applies in daemon mode)</span>{% endif %}</td></tr>
         <tr><th class="ps-3">Log file</th>
             <td>{% if settings.log_file %}<code class="small">{{ settings.log_file }}</code>
-                {% else %}<span class="text-muted">(none)</span>{% endif %}</td></tr>
+                {% else %}<span class="text-muted">(none; the run-directory default applies in daemon mode)</span>{% endif %}</td></tr>
         <tr><th class="ps-3">Peer fetch interval</th>
             <td>{{ fmt_duration(peer_interval) }}
               <small class="text-muted">({{ peer_interval }}&nbsp;s{% if not settings.peer_interval %}, same as the poll interval{% endif %})</small></td></tr>

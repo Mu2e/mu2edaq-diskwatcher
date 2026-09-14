@@ -8,7 +8,9 @@ _install/
 dashboard.log
 messages.db
 
-# Diskwatcher runtime state
+# Diskwatcher runtime state: per-node run directories (pid, log, any future
+# history or database), plus the pre-1.3.0 pid file location.
+run/
 diskwatcher.pid
 
 # Byte-compiled / optimized / DLL files

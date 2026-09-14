@@ -45,6 +45,8 @@
                     {% else %}<span class="badge bg-secondary">foreground</span>{% endif %}</td></tr>
             <tr><th class="ps-3">Config file</th>
                 <td><code class="small">{{ settings.config_path or '(defaults)' }}</code></td></tr>
+            <tr><th class="ps-3">Run directory</th>
+                <td><code class="small">{{ settings.run_dir }}</code></td></tr>
             <tr><th class="ps-3">Poll interval</th><td>{{ poll_display }}</td></tr>
             <tr><th class="ps-3">Watched paths</th><td>{{ total }}</td></tr>
             <tr><th class="ps-3">Stale / missing</th>

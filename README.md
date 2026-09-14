@@ -57,8 +57,9 @@ watcher:
   poll_interval: 30          # seconds between polls
   default_delay: 300         # staleness fallback for entries that omit delay:
   daemon:        false
-  pid_file:      "./config/mu2edaq-diskwatcher.pid"
-  log_file:      "./config/mu2edaq-diskwatcher.log"
+  run_dir:       "run/{host}"                        # per node; see below
+  pid_file:      "{run_dir}/mu2edaq-diskwatcher.pid"
+  log_file:      "{run_dir}/mu2edaq-diskwatcher.log"
 
 files:                       # regular files
   - path:  /data/mu2e/run_latest.dat
@@ -150,6 +151,34 @@ The last row preserves pre-1.2.0 behaviour, so an existing config keeps
 alarming exactly as before. Entries with no staleness threshold show as
 `unmonitored` on the Watcher page and are excluded from the OK/STALE counts.
 
+### Shared checkouts: per-node runtime files
+
+The checkout is usually on NFS, shared by several DAQ nodes that each run
+their own diskwatcher. Everything a copy writes therefore goes in a per-node
+run directory, `watcher.run_dir`, default `run/{host}` where `{host}` is the
+short hostname. The pid file and log default to `mu2edaq-diskwatcher.pid` and
+`.log` inside it (daemon mode only; a foreground run still logs to the terminal
+and writes no pid file). Any history or database a future version keeps
+belongs there too. `run/` is git-ignored.
+
+`run_dir`, `pid_file` and `log_file` accept placeholders, expanded once at
+startup: `{host}`, `{hostname}`, `{port}`, `{user}`, and in the two files
+`{run_dir}`. An unknown placeholder is left visible rather than silently
+dropped. Overrides: `--run-dir`, `MU2EDAQ_DISKWATCHER_RUN_DIR`.
+
+The start and stop scripts use the same directory (`./run/<short hostname>`,
+or `DW_RUN_DIR`, or `--run-dir`) and pass it to the daemon, so what the script
+looks for is always what the daemon wrote. Both still read the pre-1.3.0
+`./diskwatcher.pid`, so a daemon started by an older release is found and
+replaced. The process-table sweep needs no such care: `ps` only ever sees the
+node it runs on.
+
+```bash
+./start-mu2edaq-diskwatcher.sh                              # run/<host>/...
+./start-mu2edaq-diskwatcher.sh --run-dir /var/run/dw         # node-local disk
+python diskwatcher.py --daemon --run-dir '/var/run/dw-{host}-{port}'
+```
+
 ### Peers: aggregating other instances
 
 Every DAQ node runs its own diskwatcher against its own disks. A `peers:` list
@@ -205,8 +234,8 @@ command line  >  environment  >  config file  >  built-in defaults
 ```
 
 Environment overrides are named `MU2EDAQ_DISKWATCHER_*`: `CONFIG`, `WEB_HOST`,
-`WEB_PORT`, `POLL_INTERVAL`, `DEFAULT_DELAY`, `DAEMON`, `PID_FILE`, `LOG_FILE`,
-`VERBOSE`, `PEERS`, `PEER_TIMEOUT`, `PEER_INTERVAL`. An unparseable value is
+`WEB_PORT`, `POLL_INTERVAL`, `DEFAULT_DELAY`, `DAEMON`, `RUN_DIR`, `PID_FILE`,
+`LOG_FILE`, `VERBOSE`, `PEERS`, `PEER_TIMEOUT`, `PEER_INTERVAL`. An unparseable value is
 warned about and ignored. The peer list is layered too: `--peer` replaces
 `PEERS`, which replaces the file's `peers:`.
 
@@ -296,10 +325,11 @@ New integrations should prefer `/api/state`.
 Unrecognised options are forwarded to `diskwatcher.py` unchanged, so
 `./start-mu2edaq-diskwatcher.sh --verbose` works.
 
-The start script runs the daemon with `--pid-file ./diskwatcher.pid`, which
-overrides `watcher.pid_file` in the YAML. `--pid-file FILE` changes both halves
-together — where the script looks for a running copy, and where the daemon it
-starts writes — so the next start reads the file the last one wrote.
+The start script runs the daemon with `--run-dir ./run/<host>` and
+`--pid-file ./run/<host>/mu2edaq-diskwatcher.pid`, which override the YAML.
+`--run-dir DIR` and `--pid-file FILE` change both halves together — where the
+script looks for a running copy, and where the daemon it starts writes — so the
+next start reads the file the last one wrote.
 
 **Only one copy runs at a time.** Before starting, the script looks for a copy
 already running out of its own directory and stops it. Without that, a second
@@ -368,6 +398,7 @@ diskwatcher.py                     entry-point shim (control room runs this)
 pyproject.toml                     packaging; installs the console script
 CHANGELOG.md                       what changed in each release
 config/mu2edaq-diskwatcher.yaml    configuration, heavily commented
+run/<host>/                        per-node pid file and log (git-ignored)
 lib/diskwatcher-proc.sh            process discovery shared by start and stop
 man/                               mu2edaq-diskwatcher.1, .conf.5
 tests/                             pytest suite
