@@ -136,6 +136,20 @@ Not yet tagged. On branch `feature/peer-federation`.
   legacy file only when it names nothing alive on this node — on a shared
   checkout it may belong to another node's daemon. A new `dw_node` helper in
   `lib/diskwatcher-proc.sh` yields the short hostname with fallbacks.
+- **Per-node configuration files in `config/nodes/`**, one for each DAQ node
+  — `mu2egateway01`, `mu2egateway02`, `mu2e-dl-02`, `mu2e-cfo-01`,
+  `mu2e-trk-01` to `14`, `mu2e-calo-01` to `08`, `mu2e-crv-01` — generated
+  from `config/nodes/node.template.yaml` by `tools/make-node-configs.sh`
+  (`man make-node-configs`). Each watches `/data`, `/daqlogs`, `/scratch`,
+  `/var`, `/var/log` and `/tmp` for free space and `/var/log/messages` and
+  `/var/log/secure` for size, with the `mu2e-dl-01` thresholds; free-space
+  entries carry no `delay:` so a quiet volume between runs never raises a
+  staleness alarm. A generated file carries a `GENERATED` header line; one
+  without it is treated as hand-edited and skipped unless `--force` is given.
+  The shipped-config test now covers `config/` recursively, and a further test
+  checks the 27 files against the template and that a dry run of the generator
+  names exactly them. `mu2e-dl-01` keeps its hand-written file, which also
+  watches `/home`.
 - **`tests/test_peers.py`**, driving the client against a real loopback HTTP
   server: refused, timed out, HTTP error, not JSON, not a diskwatcher payload,
   oversized, self-reference, retained data across a failure and recovery,

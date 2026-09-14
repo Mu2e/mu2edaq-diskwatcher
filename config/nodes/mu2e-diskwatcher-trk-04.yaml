@@ -1,0 +1,129 @@
+# mu2e-diskwatcher-trk-04.yaml — disk watcher configuration for mu2e-trk-04.fnal.gov
+#
+# GENERATED from config/nodes/node.template.yaml by tools/make-node-configs.sh.
+# Edit the template and re-run the script rather than this file, or the next
+# regeneration will silently undo the change.
+#
+# Host-local configuration: every entry below is read on the machine running
+# the watcher, so there are no ssh: blocks.  Run it on mu2e-trk-04 with
+#
+#     ./start-mu2edaq-diskwatcher.sh -c ./config/nodes/mu2e-diskwatcher-trk-04.yaml
+#
+# Override order (increasing priority):
+#
+#     command line  >  environment  >  this file  >  built-in defaults
+#
+# Threshold syntax is documented in config/mu2edaq-diskwatcher.yaml.  In short:
+# "space:" thresholds name how much space must remain FREE and therefore
+# descend (warning > critical > full); percentages are percent of total
+# capacity still free.  "size:" thresholds name file length and ascend
+# (warning < critical < full); percentages are not allowed there.
+
+watcher:
+  web_host:      "0.0.0.0"   # Bind address for the Flask web server
+  web_port:      5002        # HTTP port for the dashboard
+  poll_interval: 30          # Seconds between checks
+  default_delay: 300         # Staleness threshold for entries that omit "delay"
+  daemon:        false       # The start script passes --daemon
+  # Per-node run directory: this checkout is shared over NFS, so nothing
+  # written at runtime may collide with another node.
+  run_dir:       "run/{host}"                          # {host} = short hostname
+  pid_file:      "{run_dir}/mu2e-diskwatcher-trk-04.pid"
+  log_file:      "{run_dir}/mu2e-diskwatcher-trk-04.log"
+
+
+# ---------------------------------------------------------------------------
+# Files watched for size (and, where useful, staleness)
+# ---------------------------------------------------------------------------
+# allow_empty: true is set on both rotated system logs.  logrotate truncates or
+# recreates them, so a zero-length file is a routine transient rather than a
+# fault; a dead rsyslog is caught by the delay: staleness check on messages.
+files:
+  - path:  /var/log/messages
+    label: "syslog (messages)"
+    delay: 3600              # rsyslog writes at least hourly; stale => rsyslog down
+    size:
+      allow_empty: true
+      warning:  "500 MiB"
+      critical: "2 GiB"
+      full:     "8 GiB"
+
+  - path:  /var/log/secure
+    label: "auth log (secure)"
+    # No delay: — auth events are sparse and a quiet secure log is normal.
+    size:
+      allow_empty: true
+      warning:  "100 MiB"
+      critical: "500 MiB"
+      full:     "2 GiB"
+
+
+# ---------------------------------------------------------------------------
+# Directories watched for free space
+# ---------------------------------------------------------------------------
+# Free space only: no delay: keys, so a volume that is legitimately quiet
+# (a tracker node between runs) never raises a staleness alarm.  Add
+# "delay: <seconds>" to an entry if a write cadence is expected there.
+#
+# Thresholds are per-filesystem: where two of these paths share a mount
+# (/var and /var/log usually do) both entries report the same free space.
+# A path that does not exist on this node reports MISSING, which is the
+# right answer for an unmounted DAQ volume; remove the entry if the node
+# genuinely has no such area.
+paths:
+  - path:  /data
+    label: "DAQ data volume"
+    space:
+      warning:  "10%"
+      critical: "5%"
+      full:     "500 GiB"
+
+  - path:  /daqlogs
+    label: "DAQ logs volume"
+    space:
+      warning:  "15%"
+      critical: "5%"
+      full:     "20 GiB"
+
+  - path:  /scratch
+    label: "Scratch volume"
+    space:
+      warning:  "15%"
+      critical: "5%"
+      full:     "100 GiB"
+
+  - path:  /var
+    label: "System /var"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
+
+  - path:  /var/log
+    label: "System /var/log"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
+
+  - path:  /tmp
+    label: "Temp directory"
+    space:
+      warning:  "20%"
+      critical: "10%"
+      full:     "1 GiB"
+
+
+# ---------------------------------------------------------------------------
+# Peers
+# ---------------------------------------------------------------------------
+# Leaf node: it answers discovery so an aggregator (e.g. mu2e-mgr-01) can find
+# it, but does not itself federate anyone.  Set discover.enabled to true, or
+# list URLs under static:, to make this node's dashboard show others too.
+peers:
+  static: []
+  discover:
+    enabled: false
+    filter:  {app: diskwatcher}
+    timeout: 2.0
+    exclude: []

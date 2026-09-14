@@ -179,6 +179,26 @@ node it runs on.
 python diskwatcher.py --daemon --run-dir '/var/run/dw-{host}-{port}'
 ```
 
+### Per-node configuration files
+
+`config/nodes/` holds one generated file per DAQ node, all from
+`config/nodes/node.template.yaml`: the two gateways, `mu2e-dl-02`,
+`mu2e-cfo-01`, `mu2e-trk-01` to `14`, `mu2e-calo-01` to `08` and `mu2e-crv-01`.
+Each watches `/data`, `/daqlogs`, `/scratch`, `/var`, `/var/log` and `/tmp`
+for free space, and `/var/log/messages` and `/var/log/secure` for size, with
+the same thresholds as the hand-written `mu2e-dl-01` file. On a node:
+
+```bash
+./start-mu2edaq-diskwatcher.sh -c config/nodes/mu2e-diskwatcher-trk-03.yaml
+```
+
+To change a threshold everywhere, edit the template and run
+`tools/make-node-configs.sh` (see `man make-node-configs`); a file that has
+lost its `GENERATED` header line is treated as hand-edited and skipped unless
+`--force` is given. A path that does not exist on a node reports `MISSING`,
+which is the right answer for an unmounted DAQ volume; remove the entry from
+that node's file if the area genuinely does not exist there.
+
 ### Peers: aggregating other instances
 
 Every DAQ node runs its own diskwatcher against its own disks. A `peers:` list
@@ -442,9 +462,11 @@ diskwatcher.py                     entry-point shim (control room runs this)
 pyproject.toml                     packaging; installs the console script
 CHANGELOG.md                       what changed in each release
 config/mu2edaq-diskwatcher.yaml    configuration, heavily commented
+config/nodes/                      one generated config per DAQ node, plus the template
+tools/make-node-configs.sh         regenerates config/nodes/ from the template
 run/<host>/                        per-node pid file and log (git-ignored)
 lib/diskwatcher-proc.sh            process discovery shared by start and stop
-man/                               mu2edaq-diskwatcher.1, .conf.5
+man/                               mu2edaq-diskwatcher.1, .conf.5, make-node-configs.1
 tests/                             pytest suite
 src/mu2edaq_diskwatcher/
     settings.py    process-wide settings singleton (defaults→YAML→env→CLI)

@@ -78,7 +78,12 @@ def test_shim_still_exists():
 # An operator edits these in place; a parse error in one stops the daemon
 # from starting at all. Observed for real: uncommenting the `discover:`
 # sub-block of an example while its `peers:` header stayed commented.
-@pytest.mark.parametrize("name", sorted(p.name for p in (REPO / "config").glob("*.yaml")))
+CONFIGS = sorted(str(p.relative_to(REPO / "config"))
+                 for p in (REPO / "config").rglob("*.yaml")
+                 if not p.name.endswith(".template.yaml"))
+
+
+@pytest.mark.parametrize("name", CONFIGS)
 def test_shipped_config_parses_and_is_clean(name):
     import yaml
     from mu2edaq_diskwatcher.config import entries_from_config, peers_from_config
@@ -90,6 +95,40 @@ def test_shipped_config_parses_and_is_clean(name):
     entries, issues = entries_from_config(cfg, default_delay=300)
     assert issues == [], (name, issues)
     assert entries or static or discover["enabled"], f"{name} watches nothing"
+
+
+def test_node_configs_match_the_template_and_watch_the_six_areas():
+    """Regenerating must be a no-op, and every node file must watch the areas
+    the DAQ group asked for.  The template itself is not a valid config until
+    its placeholders are filled, so it is excluded from CONFIGS above."""
+    import subprocess
+    import yaml
+    nodes = REPO / "config" / "nodes"
+    generated = sorted(p for p in nodes.glob("mu2e-diskwatcher-*.yaml"))
+    assert len(generated) == 27, [p.name for p in generated]
+    names = {p.name for p in generated}
+    # Zero-padded numbering, as the nodes are actually named.
+    assert "mu2e-diskwatcher-calo-01.yaml" in names and "mu2e-diskwatcher-trk-14.yaml" in names
+    assert not any(n.startswith("mu2e-diskwatcher-calo-") and len(n) < len("mu2e-diskwatcher-calo-01.yaml")
+                   for n in names), names
+    for path in generated:
+        text = path.read_text()
+        assert "# GENERATED from" in text, path.name
+        cfg = yaml.safe_load(text)
+        assert [e["path"] for e in cfg["paths"]] == \
+            ["/data", "/daqlogs", "/scratch", "/var", "/var/log", "/tmp"], path.name
+        assert [e["path"] for e in cfg["files"]] == \
+            ["/var/log/messages", "/var/log/secure"], path.name
+        assert all(e["size"]["allow_empty"] for e in cfg["files"]), path.name
+        stem = path.name[:-len(".yaml")]
+        assert cfg["watcher"]["pid_file"] == f"{{run_dir}}/{stem}.pid"
+        assert cfg["peers"]["discover"]["enabled"] is False
+    # A dry run against the committed files must name exactly these.
+    out = subprocess.run(["bash", str(REPO / "tools" / "make-node-configs.sh"), "-n"],
+                         capture_output=True, text=True, cwd=str(REPO), timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert sorted(line.split()[2] for line in out.stdout.splitlines()) == \
+        sorted(str(p) for p in generated)
 
 
 def test_default_config_ships_with_discovery_present_but_off():

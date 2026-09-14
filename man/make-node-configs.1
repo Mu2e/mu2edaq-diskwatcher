@@ -1,0 +1,132 @@
+.TH MAKE\-NODE\-CONFIGS 1 "September 2026" "mu2edaq-diskwatcher 1.3.0" "Mu2e DAQ Utilities"
+.SH NAME
+make\-node\-configs.sh \- generate one mu2edaq\-diskwatcher configuration per DAQ node
+.SH SYNOPSIS
+.B tools/make\-node\-configs.sh
+[\fB\-n\fR]
+[\fB\-f\fR]
+[\fB\-o\fR \fIDIR\fR]
+[\fB\-t\fR \fIFILE\fR]
+[\fB\-d\fR \fIDOMAIN\fR]
+[\fIHOST\fR ...]
+.br
+.B tools/make\-node\-configs.sh
+.B \-l
+.SH DESCRIPTION
+Writes
+.IR config/nodes/mu2e\-diskwatcher\- node .yaml
+for each DAQ node from the template
+.BR config/nodes/node.template.yaml ,
+substituting the node's name into the header comment and into the pid and log
+file names.
+The nodes all watch the same six areas
+.RB ( /data ", " /daqlogs ", " /scratch ", " /var ", " /var/log ", " /tmp )
+with the same free-space thresholds, so a threshold change is one edit to the
+template and one run of this script rather than the same edit in every file.
+.PP
+With no
+.I HOST
+arguments the built-in Mu2e list is used:
+.BR mu2egateway01 ", " mu2egateway02 ", " mu2e\-dl\-02 ", " mu2e\-cfo\-01 ", "
+.BR mu2e\-trk\-01 " through " mu2e\-trk\-14 ", " mu2e\-calo\-01 " through "
+.BR mu2e\-calo\-08 " and " mu2e\-crv\-01 .
+.B mu2e\-dl\-01
+is deliberately absent: it keeps its hand-written
+.BR config/mu2e\-diskwatcher\-dl\-01.yaml ,
+which also watches system logs and
+.BR /home .
+.PP
+A generated file carries a
+.B GENERATED
+line in its header.
+A file at the target path without that line is taken to have been edited by
+hand and is skipped, so a deliberate local change is never silently lost;
+.B \-\-force
+overwrites it anyway.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-dry\-run
+Print what would be written and write nothing.
+.TP
+.BR \-f ", " \-\-force
+Overwrite hand-edited files.
+.TP
+.BR \-o ", " \-\-output " " \fIDIR\fR
+Output directory.
+Default:
+.BR config/nodes .
+.TP
+.BR \-t ", " \-\-template " " \fIFILE\fR
+Template to substitute into.
+Default:
+.BR config/nodes/node.template.yaml .
+.TP
+.BR \-d ", " \-\-domain " " \fIDOMAIN\fR
+Domain appended to short names in the header.
+Default:
+.BR fnal.gov .
+.TP
+.BR \-l ", " \-\-list
+Print the built-in node list, one per line, and exit.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.SH TEMPLATE PLACEHOLDERS
+.TP
+.B @HOST@
+Short hostname, e.g.
+.BR mu2e\-trk\-03 .
+.TP
+.B @FQDN@
+.IR HOST . DOMAIN .
+.TP
+.B @FILE@
+The output file name, e.g.
+.BR mu2e\-diskwatcher\-trk\-03.yaml .
+.TP
+.B @FILE_STEM@
+The file name without
+.BR .yaml ,
+used for the pid and log names inside the per-node run directory.
+.SH FILES
+.TP
+.B config/nodes/node.template.yaml
+The template.
+.TP
+.B config/nodes/mu2e\-diskwatcher\-*.yaml
+The generated configurations.
+.SH EXIT STATUS
+.TP
+.B 0
+Every requested file was written (or, with
+.BR \-n ,
+listed).
+.TP
+.B 1
+Bad option, or the template does not exist.
+.TP
+.B 2
+At least one file was skipped as hand-edited.
+.SH EXAMPLES
+Regenerate every node file after changing a threshold in the template:
+.PP
+.nf
+    tools/make\-node\-configs.sh
+.fi
+.PP
+Add a node that is not in the built-in list:
+.PP
+.nf
+    tools/make\-node\-configs.sh mu2e\-trk\-15
+.fi
+.PP
+Start the watcher on a node with its generated file:
+.PP
+.nf
+    ./start\-mu2edaq\-diskwatcher.sh \-c config/nodes/mu2e\-diskwatcher\-trk\-03.yaml
+.fi
+.SH SEE ALSO
+.BR mu2edaq\-diskwatcher (1),
+.BR mu2edaq\-diskwatcher.conf (5)
+.SH AUTHORS
+Mu2e DAQ group, Fermi National Accelerator Laboratory.
