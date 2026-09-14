@@ -77,6 +77,16 @@ def test_run_dir_flag_defaults_to_none_so_the_yaml_value_survives():
     assert parse(["--run-dir", "/x/{host}"]).run_dir == "/x/{host}"
 
 
+def test_discover_flags_default_to_none_and_repeat():
+    args = parse([])
+    assert args.discover_peers is None and args.no_discover_peers is None
+    assert args.discover_filter is None
+    args = parse(["--discover-peers", "--discover-filter", "host=mu2e-dl-*",
+                  "--discover-filter", "name=Disk*", "--no-discover-peers"])
+    assert args.discover_peers is True and args.no_discover_peers is True
+    assert args.discover_filter == ["host=mu2e-dl-*", "name=Disk*"]
+
+
 def test_peer_flags_default_to_none_and_repeat():
     args = parse([])
     assert args.peers is None and args.no_peers is None

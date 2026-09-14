@@ -362,6 +362,14 @@ function peerDetails(peer) {
              escHtml(peer.url) + ' <i class="bi bi-box-arrow-up-right"></i></a>');
   if (peer.hostname && peer.hostname !== peer.label) parts.push(escHtml(peer.hostname));
   if (peer.version) parts.push('v' + escHtml(peer.version));
+  if (peer.source === 'discovered') {
+    parts.push('<span class="badge bg-info text-dark peer-source" ' +
+               'title="Found by mu2edaq-discovery, not listed in the config">discovered</span>' +
+               (peer.discovery_missing
+                 ? ' <span class="text-warning-emphasis">not seen by discovery for ' +
+                   fmtAge(peer.discovery_seen_age_s) + '</span>'
+                 : ''));
+  }
   if (peer.status === 'ok') {
     const age = (peer.fetched_age_s || 0) + (peer.peer_poll_age_s || 0);
     parts.push('data ' + fmtAge(age) + ' old');

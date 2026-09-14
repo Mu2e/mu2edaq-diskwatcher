@@ -156,6 +156,7 @@
         <tr>
           <th class="ps-3">Label</th>
           <th>URL</th>
+          <th>Source</th>
           <th>Status</th>
           <th>Peer</th>
           <th>Entries</th>
@@ -175,6 +176,15 @@
             {% endfor %}
           </td>
           <td><a href="{{ p.url }}/" target="_blank" rel="noopener"><code class="small">{{ p.url }}</code></a></td>
+          <td class="small">
+            {% if p.source == 'discovered' %}
+              <span class="badge bg-info text-dark">discovered</span>
+              {% if p.discovery_missing %}
+              <div class="text-warning-emphasis">not seen for
+                {{ p.discovery_seen_age_s | round | int }}&nbsp;s</div>
+              {% endif %}
+            {% else %}<span class="text-muted">config</span>{% endif %}
+          </td>
           <td>
             {% if p.status == 'ok' %}<span class="badge bg-success">connected</span>
             {% elif p.status == 'error' %}<span class="badge bg-danger" title="{{ p.error }}">unreachable</span>
@@ -195,9 +205,11 @@
           <td class="small">{% if p.timeout %}{{ p.timeout }}&nbsp;s{% else %}<span class="text-muted">default</span>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-muted p-3">No peers configured. Add a
-          <code>peers:</code> list to the YAML config file, or pass
-          <code>--peer URL</code>, to show another diskwatcher's entries here.</td></tr>
+        <tr><td colspan="8" class="text-muted p-3">No peers
+          {% if discovery.enabled %}found yet{% else %}configured{% endif %}. Add a
+          <code>peers:</code> list to the YAML config file, pass
+          <code>--peer URL</code>, or enable <code>peers.discover</code>, to show
+          another diskwatcher's entries here.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -206,6 +218,51 @@
     A peer's <code>/api/state</code> is fetched every {{ fmt_duration(peer_interval) }}.
     Its entries appear on the three dashboards under a heading with its
     connection details; live status is in <a href="/api/peers">/api/peers</a>.
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-broadcast"></i> Peer Discovery
+    {% if discovery.enabled %}<span class="badge bg-success ms-2">enabled</span>
+    {% else %}<span class="badge bg-secondary ms-2">disabled</span>{% endif %}
+    {% if discovery.enabled and not discovery.available %}
+    <span class="badge bg-danger ms-1" title="mu2edaq-discovery is not installed">package missing</span>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        <tr><th class="ps-3" style="width:30%">Filter</th>
+            <td><code>{% for k, v in discovery.filter | dictsort %}{{ k }}={{ v }}{% if not loop.last %} {% endif %}{% endfor %}</code>
+              <small class="text-muted">fnmatch globs on the responder's app, name, host</small></td></tr>
+        <tr><th class="ps-3">Excluded hosts</th>
+            <td>{% if discovery.exclude %}<code>{{ discovery.exclude | join(' ') }}</code>
+                {% else %}<span class="text-muted">none</span>{% endif %}</td></tr>
+        <tr><th class="ps-3">Scan interval / timeout</th>
+            <td>{{ fmt_duration(discovery.interval) }} / {{ discovery.timeout }}&nbsp;s
+              <small class="text-muted">a peer unseen for {{ fmt_duration(discovery.grace) }} is dropped</small></td></tr>
+        <tr><th class="ps-3">Last scan</th>
+            <td>{% if discovery.last_scan %}{{ discovery.last_scan_age_s | round | int }}&nbsp;s ago,
+                  {{ discovery.responders }} responder(s) answered in {{ discovery.last_scan_duration_s }}&nbsp;s
+                  {%- if discovery.excluded %};
+                    set aside: {% for reason, n in discovery.excluded | dictsort %}{{ n }} {{ reason }}{% if not loop.last %}, {% endif %}{% endfor %}
+                  {%- endif %}
+                {% elif discovery.enabled %}<span class="text-muted">not yet</span>
+                {% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                {% if discovery.error %}<div class="text-danger small">{{ discovery.error }}</div>{% endif %}</td></tr>
+        <tr><th class="ps-3">Discovered peers</th>
+            <td>{% if discovery.peers %}{% for u in discovery.peers %}<code class="small">{{ u }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                {% else %}<span class="text-muted">none</span>{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    Discovery decides which diskwatchers are <em>listed</em>; each one's HTTP
+    fetch decides whether it is <em>up</em>. A peer also written under
+    <code>static:</code> keeps that entry's label and timeout. This instance's
+    own responder is recognised by <code>instance_id</code> and never federated.
+    Multicast group <code>239.255.42.99:28999</code>.
   </div>
 </div>
 

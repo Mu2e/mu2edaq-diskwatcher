@@ -22,16 +22,25 @@ Design points, each of which a future maintainer might otherwise "fix":
   ``instance_id``; matching ours means the URL resolved back here.
 * **stdlib only.**  ``urllib`` is enough for one GET per peer per interval, and
   the deployment hosts are offline-installed.
+
+Peers can also be *discovered* rather than listed: with ``peers.discover``
+enabled, the loop runs a ``mu2edaq-discovery`` multicast scan every scan
+interval, turns each ``diskwatcher`` responder into a peer spec, merges those
+with the static list (static wins on URL) and drops a peer only after it has
+gone unseen for a grace period.  Discovery decides what is *listed*; HTTP
+still decides what is *up*.  See :class:`DiscoveryState`.
 """
 
+import fnmatch
 import json
 import socket
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import INSTANCE_ID, __version__
 from .settings import get_settings
@@ -158,10 +167,211 @@ def poll_peer(peer: dict, previous: Optional[dict], now: Optional[float] = None)
     return record
 
 
+# ---------------------------------------------------------------------------
+# Discovery: find peers with mu2edaq-discovery instead of listing them
+# ---------------------------------------------------------------------------
+def discovery_available() -> bool:
+    try:
+        import mu2edaq_discovery  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _run_discover(filter: dict, timeout: float) -> List[dict]:
+    """One multicast scan.  Separate so tests can substitute canned records."""
+    from mu2edaq_discovery import discover
+    return discover(filter=filter, timeout=timeout)
+
+
+def host_excluded(host: str, patterns: List[str]) -> bool:
+    """fnmatch *host* -- full and short forms -- against the exclude globs."""
+    short = host.split(".", 1)[0]
+    return any(fnmatch.fnmatch(host, p) or fnmatch.fnmatch(short, p) for p in patterns)
+
+
+def record_to_peer(record: dict, exclude: List[str]) -> Tuple[Optional[dict], Optional[str]]:
+    """Turn one ANNOUNCE record into a peer spec, or say why not.
+
+    The reason strings are the keys counted in the discovery status, so an
+    operator can see "3 responders, 1 excluded: self" rather than a bare
+    number.
+    """
+    host = str(record.get("host") or "")
+    scheme = str(record.get("scheme") or "")
+    port = record.get("port")
+    if not host or not isinstance(port, int):
+        return None, "malformed"
+    if scheme not in ("http", "https"):
+        return None, f"scheme {scheme or '?'}"
+    meta = record.get("meta") or {}
+    if meta.get("instance_id") == INSTANCE_ID:
+        return None, "self"
+    if host_excluded(host, exclude):
+        return None, "excluded"
+    return {
+        "url":           f"{scheme}://{host}:{port}",
+        "label":         host.split(".", 1)[0],
+        "timeout":       None,
+        "enabled":       True,
+        "config_errors": [],
+        "source":        "discovered",
+        "discovery_id":  record.get("id"),
+        "discovery_host": host,
+        "discovery_version": record.get("version"),
+    }, None
+
+
+class DiscoveryState:
+    """Everything known about peer discovery, for the poll loop and /api/peers.
+
+    ``_seen`` maps URL to the peer spec plus the time it last answered a scan.
+    A peer that stops answering is kept, and still fetched, until it has been
+    unseen for the grace period -- multicast replies do get lost, and one lost
+    reply must not blank a node's rows.  HTTP remains the source of truth for
+    whether the peer is *up*; discovery only decides whether it is *listed*.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._seen: Dict[str, dict] = {}
+        self.last_scan: Optional[float] = None
+        self.last_scan_duration_s: Optional[float] = None
+        self.responders = 0
+        self.excluded: Dict[str, int] = {}
+        self.error: Optional[str] = None
+        self.scans = 0
+
+    def due(self, now: float, interval: float) -> bool:
+        return self.last_scan is None or now - self.last_scan >= interval
+
+    def scan(self, cfg: dict, now: float) -> None:
+        """Run one discovery and fold the answers into ``_seen``."""
+        started = time.time()
+        try:
+            records = _run_discover(cfg.get("filter") or {}, cfg.get("timeout") or 2.0)
+            error = None
+        except ImportError:
+            records, error = [], "mu2edaq-discovery is not installed"
+        except Exception as exc:                   # socket errors, bad datagrams
+            records, error = [], f"{type(exc).__name__}: {exc}"
+
+        excluded: Dict[str, int] = {}
+        found: Dict[str, dict] = {}
+        for record in records:
+            peer, reason = record_to_peer(record, cfg.get("exclude") or [])
+            if peer is None:
+                excluded[reason] = excluded.get(reason, 0) + 1
+                continue
+            found[peer["url"]] = peer
+
+        with self._lock:
+            for url, peer in found.items():
+                previous = self._seen.get(url)
+                if previous is None:
+                    print(f"[Peers] discovered {peer['label']} at {peer['url']} "
+                          f"(diskwatcher {peer.get('discovery_version')})")
+                peer["discovery_last_seen"] = now
+                peer["discovery_first_seen"] = (previous or {}).get("discovery_first_seen", now)
+                self._seen[url] = peer
+            self.last_scan = now
+            self.last_scan_duration_s = round(time.time() - started, 3)
+            self.responders = len(records)
+            self.excluded = excluded
+            self.error = error
+            self.scans += 1
+        if error and (self.scans == 1 or get_settings().verbose):
+            print(f"[Peers] discovery failed: {error}", file=sys.stderr)
+
+    def expire(self, now: float, grace: float) -> List[str]:
+        """Drop peers unseen for *grace* seconds; return their URLs."""
+        with self._lock:
+            gone = [url for url, p in self._seen.items()
+                    if now - p["discovery_last_seen"] > grace]
+            for url in gone:
+                peer = self._seen.pop(url)
+                print(f"[Peers] {peer['label']} ({url}) not seen by discovery for "
+                      f"{grace:g} s; dropping it", file=sys.stderr)
+        return gone
+
+    def current(self) -> List[dict]:
+        """Peer specs still within grace, flagged if the last scan missed them."""
+        with self._lock:
+            last = self.last_scan
+            out = []
+            for peer in self._seen.values():
+                spec = dict(peer)
+                spec["discovery_missing"] = last is not None and \
+                    peer["discovery_last_seen"] < last
+                out.append(spec)
+        return sorted(out, key=lambda p: (p["label"], p["url"]))
+
+    def snapshot(self, cfg: dict) -> dict:
+        """For /api/peers and the Config page."""
+        now = time.time()
+        with self._lock:
+            last = self.last_scan
+            return {
+                "enabled":              bool(cfg.get("enabled")),
+                "available":            discovery_available(),
+                "filter":               dict(cfg.get("filter") or {}),
+                "interval":             cfg.get("interval"),
+                "timeout":              cfg.get("timeout"),
+                "grace":                cfg.get("grace"),
+                "exclude":              list(cfg.get("exclude") or []),
+                "scans":                self.scans,
+                "last_scan":            last,
+                "last_scan_age_s":      None if last is None else round(now - last, 1),
+                "last_scan_duration_s": self.last_scan_duration_s,
+                "responders":           self.responders,
+                "excluded":             dict(self.excluded),
+                "error":                self.error,
+                "peers":                sorted(self._seen.keys()),
+            }
+
+    def clear(self) -> None:
+        with self._lock:
+            self._seen = {}
+            self.last_scan = None
+            self.last_scan_duration_s = None
+            self.responders = 0
+            self.excluded = {}
+            self.error = None
+            self.scans = 0
+
+
+#: Process-wide discovery bookkeeping.
+DISCOVERY = DiscoveryState()
+
+
+def merge_peers(static: List[dict], discovered: List[dict]) -> List[dict]:
+    """Static entries first and winning on URL, so an operator's label,
+    timeout or ``enabled: false`` is respected for a peer discovery also finds."""
+    urls = {p["url"] for p in static}
+    return list(static) + [p for p in discovered if p["url"] not in urls]
+
+
+def active_peers(now: Optional[float] = None) -> List[dict]:
+    """Every peer to fetch this cycle, running a discovery scan when due."""
+    settings = get_settings()
+    static = list(settings.peers)
+    cfg = settings.discover
+    if not cfg.get("enabled"):
+        return static
+    now = time.time() if now is None else now
+    interval = cfg.get("interval") or settings.effective_peer_interval()
+    if DISCOVERY.due(now, interval):
+        DISCOVERY.scan(cfg, now)
+    static_urls = {p["url"] for p in static}
+    for url in DISCOVERY.expire(now, cfg.get("grace") or 3 * interval):
+        if url not in static_urls:
+            PEERS.remove(url)
+    return merge_peers(static, DISCOVERY.current())
+
+
 def do_peer_poll() -> None:
     """Fetch every enabled peer concurrently and publish the results."""
-    settings = get_settings()
-    peers = list(settings.peers)
+    peers = active_peers()
     if not peers:
         return
 
@@ -217,4 +427,10 @@ def peer_loop() -> None:
             do_peer_poll()
         except Exception as exc:
             print(f"[Peers] Unexpected error: {exc}", file=sys.stderr)
-        time.sleep(get_settings().effective_peer_interval())
+        # A discovery scan can be due sooner than the fetch interval; sleep
+        # for the shorter of the two so neither cadence stretches the other.
+        settings = get_settings()
+        sleep_for = settings.effective_peer_interval()
+        if settings.discover.get("enabled") and settings.discover.get("interval"):
+            sleep_for = min(sleep_for, settings.discover["interval"])
+        time.sleep(sleep_for)

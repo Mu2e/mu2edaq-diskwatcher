@@ -34,6 +34,7 @@ from typing import Callable, List
 from flask import Blueprint, jsonify, request
 
 from .. import INSTANCE_ID, START_TIME, __version__
+from ..peers import DISCOVERY
 from ..settings import get_settings
 from ..state import (
     PEERS,
@@ -230,7 +231,9 @@ def api_peers():
 
     For diagnostics and the Config page.  Each record carries per-peer watch,
     space and size summaries so a script can see at a glance what a peer is
-    contributing, and ``counts`` totals the connection states.
+    contributing, ``counts`` totals the connection states, and ``discovery``
+    reports the last multicast scan: when, how many answered, how many were
+    set aside and why (``self``, ``excluded``, a non-HTTP scheme).
     """
     peers = []
     for record in PEERS.snapshot():
@@ -244,6 +247,7 @@ def api_peers():
         "peer_interval": settings.effective_peer_interval(),
         "peer_timeout":  settings.peer_timeout,
         "counts":        PEERS.counts(),
+        "discovery":     DISCOVERY.snapshot(settings.discover),
         "peers":         peers,
     })
 

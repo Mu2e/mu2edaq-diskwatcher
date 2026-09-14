@@ -65,13 +65,50 @@ watcher:
 # The list can be replaced from the environment or the command line:
 #     MU2EDAQ_DISKWATCHER_PEERS="dl-01:5002 dl-02:5002"
 #     --peer dl-01:5002 --peer http://dl-02:5002      (--no-peers disables)
+#
+# Peers can also be FOUND rather than listed.  Every diskwatcher answers
+# mu2edaq-discovery multicast queries (group 239.255.42.99:28999), so a
+# "discover:" block makes this instance scan for them periodically and
+# federate whatever answers.  Discovery decides which peers are listed; each
+# one's HTTP fetch still decides whether it is up.  Rules:
+#
+#   - Writing the block turns it on; "enabled: false" keeps it but off.
+#   - filter: fnmatch globs on the responder's app, name, host.  "app" defaults
+#     to diskwatcher and is what you nearly always want; add "host" to limit it
+#     to a set of nodes.
+#   - A peer also written under static: keeps that entry's label/timeout.
+#   - This instance's own responder is recognised by instance_id and skipped.
+#   - A peer that stops answering is kept, and still fetched, until it has
+#     been unseen for "grace" seconds -- one lost multicast reply must not
+#     blank a node's rows.  Default: three scan intervals.
+#   - Requires the mu2edaq-discovery package (bootstrap_diskwatcher.sh installs
+#     it from a sibling checkout).  Without it a warning appears on /config
+#     and static peers still work.
+#   - Multicast must be routed between the nodes; across VLANs that depends
+#     on the switches.  Static entries remain the fallback.
+#
+# Overrides:  --discover-peers / --no-discover-peers,
+#             --discover-filter host=mu2e-dl-*       (repeatable)
+#             MU2EDAQ_DISKWATCHER_DISCOVER_PEERS=1
+#             MU2EDAQ_DISKWATCHER_DISCOVER_FILTER="host=mu2e-dl-*"
+#
+# Two shapes are accepted: a bare list (static peers only), or a mapping with
+# "static:" and "discover:".
 peers: []
 #peers:
-#  - url:     http://mu2e-dl-01.fnal.gov:5002
-#    label:   "mu2e-dl-01"        # shown in the group heading; default: host:port
-#    timeout: 5                   # seconds; default: watcher.peer_timeout
-#    enabled: true                # false lists the peer on /config but never fetches it
-#  - mu2e-dl-02.fnal.gov:5002     # bare URL form
+#  static:
+#    - url:     http://mu2e-dl-01.fnal.gov:5002
+#      label:   "mu2e-dl-01"      # shown in the group heading; default: host:port
+#      timeout: 5                 # seconds; default: watcher.peer_timeout
+#      enabled: true              # false lists the peer on /config but never fetches it
+#    - mu2e-dl-02.fnal.gov:5002   # bare URL form
+#  discover:
+#    enabled:  true
+#    filter:   {app: diskwatcher, host: "mu2e-dl-*"}
+#    interval: 60                 # seconds between scans; default: peer_interval
+#    timeout:  2.0                # seconds a scan waits for replies
+#    grace:    180                # seconds unseen before a peer is dropped; default: 3*interval
+#    exclude:  ["mu2e-dl-99"]     # host globs never to federate
 
 
 # ---------------------------------------------------------------------------

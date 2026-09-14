@@ -232,7 +232,14 @@ def test_empty_config_yields_no_entries():
 
 # ------------------------------------------------------------------- peers
 def peers(text):
-    return peers_from_config(yaml.safe_load(text) or {})
+    """Static peers and issues only; discovery has its own tests below."""
+    static, _discover, issues = peers_from_config(yaml.safe_load(text) or {})
+    return static, issues
+
+
+def discover(text):
+    _static, d, issues = peers_from_config(yaml.safe_load(text) or {})
+    return d, issues
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -256,7 +263,7 @@ def test_peer_mapping_is_parsed():
                            "    timeout: 2.5\n    enabled: false\n")
     assert issues == []
     assert result == [{"url": "http://dl-01:5002", "label": "DL-01", "timeout": 2.5,
-                       "enabled": False, "config_errors": []}]
+                       "enabled": False, "config_errors": [], "source": "static"}]
 
 
 def test_peer_label_defaults_to_host_and_port():
@@ -302,14 +309,106 @@ def test_duplicate_peer_keeps_the_first():
     assert any("more than once" in i for i in issues)
 
 
-def test_peers_that_is_not_a_list_is_rejected():
-    result, issues = peers("peers:\n  url: http://a:1\n")
+def test_peers_mapping_with_unknown_keys_warns_and_keeps_going():
+    result, issues = peers("peers:\n  url: http://a:1\n  static: [http://b:1]\n")
+    assert [p["url"] for p in result] == ["http://b:1"]
+    assert any("unknown key 'url'" in i for i in issues)
+
+
+def test_peers_scalar_is_rejected():
+    result, issues = peers("peers: 42\n")
     assert result == []
     assert any("must be a list" in i for i in issues)
 
 
 def test_no_peers_key_is_fine():
     assert peers("files: []") == ([], [])
+    assert discover("files: []")[0]["enabled"] is False
+
+
+# ---------------------------------------------------------------- discovery
+def test_flat_list_is_shorthand_for_static_with_discovery_off():
+    d, issues = discover("peers:\n  - http://a:1\n")
+    assert issues == [] and d["enabled"] is False
+
+
+def test_static_and_discover_sections():
+    static, issues = peers("peers:\n  static:\n    - http://a:1\n  discover:\n"
+                           "    filter: {host: 'mu2e-dl-*'}\n")
+    assert issues == [] and [p["url"] for p in static] == ["http://a:1"]
+    d, _ = discover("peers:\n  static:\n    - http://a:1\n  discover:\n"
+                    "    filter: {host: 'mu2e-dl-*'}\n")
+    assert d["enabled"] is True                       # writing the block means on
+    assert d["filter"] == {"host": "mu2e-dl-*", "app": "diskwatcher"}   # app defaulted
+    assert d["interval"] is None and d["grace"] is None and d["timeout"] == 2.0
+
+
+def test_discover_block_can_be_explicitly_disabled():
+    d, _ = discover("peers:\n  discover:\n    enabled: false\n    filter: {host: x}\n")
+    assert d["enabled"] is False and d["filter"]["host"] == "x"
+
+
+def test_discover_bare_boolean():
+    assert discover("peers:\n  discover: true\n")[0]["enabled"] is True
+    assert discover("peers:\n  discover: false\n")[0]["enabled"] is False
+
+
+def test_discover_numbers_and_exclude_are_parsed():
+    d, issues = discover("peers:\n  discover:\n    interval: 45\n    timeout: 1.5\n"
+                         "    grace: 300\n    exclude: [mu2e-dl-99, 'test-*']\n")
+    assert issues == []
+    assert (d["interval"], d["timeout"], d["grace"]) == (45, 1.5, 300)
+    assert d["exclude"] == ["mu2e-dl-99", "test-*"]
+
+
+def test_discover_exclude_accepts_a_single_string():
+    assert discover("peers:\n  discover:\n    exclude: mu2e-dl-99\n")[0]["exclude"] == ["mu2e-dl-99"]
+
+
+def test_discover_bad_numbers_fall_back_with_a_warning():
+    d, issues = discover("peers:\n  discover:\n    interval: soon\n    timeout: -1\n")
+    assert d["interval"] is None and d["timeout"] == 2.0
+    assert sum("not a positive number" in i for i in issues) == 2
+
+
+def test_discover_filter_rejects_unknown_keys_but_keeps_the_rest():
+    d, issues = discover("peers:\n  discover:\n    filter: {host: 'a*', port: 5}\n")
+    assert d["filter"] == {"host": "a*", "app": "diskwatcher"}
+    assert any("unknown key 'port'" in i for i in issues)
+
+
+def test_discover_filter_must_be_a_mapping():
+    d, issues = discover("peers:\n  discover:\n    filter: 'host=a*'\n")
+    assert d["filter"] == {"app": "diskwatcher"}
+    assert any("filter: must be a mapping" in i for i in issues)
+
+
+def test_discover_unknown_key_warns():
+    _, issues = discover("peers:\n  discover:\n    intreval: 5\n")
+    assert any("intreval" in i for i in issues)
+
+
+def test_discover_that_is_not_a_mapping_is_disabled():
+    d, issues = discover("peers:\n  discover: [a, b]\n")
+    assert d["enabled"] is False
+    assert any("must be a mapping or true/false" in i for i in issues)
+
+
+@pytest.mark.parametrize("spec, expected", [
+    ("host=mu2e-dl-*", {"host": "mu2e-dl-*", "app": "diskwatcher"}),
+    ("host=a*,name=Disk*", {"host": "a*", "name": "Disk*", "app": "diskwatcher"}),
+    ("app=other host=x", {"app": "other", "host": "x"}),
+])
+def test_parse_filter_spec(spec, expected):
+    from mu2edaq_diskwatcher.config import parse_filter_spec
+    assert parse_filter_spec(spec) == expected
+
+
+@pytest.mark.parametrize("spec", ["host", "port=5", "host="])
+def test_parse_filter_spec_rejects_bad_input(spec):
+    from mu2edaq_diskwatcher.config import parse_filter_spec
+    with pytest.raises(ValueError):
+        parse_filter_spec(spec)
 
 
 def test_peers_from_urls_matches_the_yaml_form():

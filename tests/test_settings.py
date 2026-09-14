@@ -102,6 +102,36 @@ def test_bad_env_peer_is_reported_and_the_variable_ignored():
     assert settings.peers == []          # all-or-nothing, like every other override
 
 
+def test_env_discover_overrides_fold_into_the_discover_block():
+    settings = reset_settings(poll_interval=20)
+    assert settings.apply_env({ENV_PREFIX + "DISCOVER_PEERS": "yes",
+                               ENV_PREFIX + "DISCOVER_FILTER": "host=mu2e-dl-*"}) == []
+    d = settings.resolve_discover()
+    assert d["enabled"] is True
+    assert d["filter"] == {"host": "mu2e-dl-*", "app": "diskwatcher"}
+    assert d["interval"] == 20 and d["grace"] == 60        # defaults filled
+
+
+def test_env_discover_off_beats_a_yaml_block_that_is_on():
+    settings = reset_settings()
+    settings.discover["enabled"] = True
+    settings.apply_env({ENV_PREFIX + "DISCOVER_PEERS": "0"})
+    assert settings.resolve_discover()["enabled"] is False
+
+
+def test_bad_env_discover_filter_is_reported_and_ignored():
+    settings = reset_settings()
+    issues = settings.apply_env({ENV_PREFIX + "DISCOVER_FILTER": "port=5"})
+    assert len(issues) == 1 and "port" in issues[0]
+    assert settings.discover_filter is None
+
+
+def test_as_dict_carries_discover_but_not_the_override_slots():
+    keys = set(reset_settings().as_dict())
+    assert "discover" in keys
+    assert "discover_peers" not in keys and "discover_filter" not in keys
+
+
 def test_env_peer_timeout_and_interval():
     settings = reset_settings()
     assert settings.apply_env({ENV_PREFIX + "PEER_TIMEOUT": "2.5",

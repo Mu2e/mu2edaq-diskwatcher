@@ -195,6 +195,22 @@ Overrides
 .BR watcher.peer_interval .
 Default: the poll interval.
 .TP
+.BR \-\-discover\-peers ", " \-\-no\-discover\-peers
+Turn discovery of peers with
+.BR mu2edaq\-discovery (1)
+on or off, overriding
+.BR peers.discover.enabled .
+.TP
+.BR \-\-discover\-filter " " \fIKEY\fR=\fIGLOB\fR
+Discovery filter, replacing
+.BR peers.discover.filter ;
+may be repeated.
+Keys are
+.BR app ", " name " and " host ;
+.B app
+defaults to
+.BR diskwatcher .
+.TP
 .BR \-v ", " \-\-verbose
 Log additional detail about remote probes, poll cycles and peer fetches.
 Without it, one line is logged each time a peer's connection state changes.
@@ -269,6 +285,15 @@ Seconds per peer fetch.
 .TP
 .B MU2EDAQ_DISKWATCHER_PEER_INTERVAL
 Seconds between peer fetches.
+.TP
+.B MU2EDAQ_DISKWATCHER_DISCOVER_PEERS
+Discover peers; a boolean.
+.TP
+.B MU2EDAQ_DISKWATCHER_DISCOVER_FILTER
+Discovery filter as
+.IR KEY = GLOB
+pairs separated by commas or whitespace, e.g.
+.BR "host=mu2e-dl-*" .
 .PP
 The start and stop scripts additionally read
 .B CRS_PORT_HTTP
@@ -460,6 +485,27 @@ under
 .B peers
 but does not change this instance's own
 .BR status .
+.PP
+Peers may also be found rather than listed: a
+.B peers.discover
+block scans for other diskwatchers with
+.BR mu2edaq\-discovery (1)
+every scan interval and federates whatever answers, merging with the static
+list (a static entry wins on the same URL).
+Discovery decides which peers are listed; HTTP decides whether each is up.
+A peer that stops answering is kept, and still fetched, until it has been
+unseen for the grace period, so one lost multicast reply never blanks a node's
+rows.
+Each peer's origin is shown on the dashboards and reported as
+.B source
+in the API.
+The responder advertises the node's fully qualified name, so that name must
+resolve from the node doing the discovering; where it does not, the peer shows
+as unreachable with the offending URL in its heading.
+See
+.BR mu2edaq\-diskwatcher.conf (5),
+section
+.BR "THE peers SECTION" .
 .PP
 Every JSON list endpoint returns local entries only unless
 .B ?peers=1
@@ -788,10 +834,15 @@ Query parameters:
 Connection status of every configured peer, without entries: label, URL,
 .BR status " (" ok ", " error ", " pending " or " disabled ),
 .BR error ,
-the version and hostname the peer reports, fetch timing, and per-peer watch,
-space and size summaries.
+the version and hostname the peer reports, fetch timing,
+.BR source " (" static " or " discovered ),
+and per-peer watch, space and size summaries.
 .B counts
-totals the connection states.
+totals the connection states and
+.B discovery
+reports the last multicast scan: when, how many responders answered, how many
+were set aside and why
+.RB ( self ", " excluded ", a non-HTTP scheme)."
 .TP
 .B /api/config
 Active settings, the parsed watch list, the peer list, and any configuration
@@ -991,6 +1042,12 @@ configuration file:
 .PP
 .nf
     mu2edaq\-diskwatcher \-c watch.yaml \-\-peer mu2e\-dl\-01:5002 \-\-peer mu2e\-dl\-02:5002
+.fi
+.PP
+Federate every diskwatcher on the data-logger nodes that answers discovery:
+.PP
+.nf
+    mu2edaq\-diskwatcher \-c watch.yaml \-\-discover\-peers \-\-discover\-filter 'host=mu2e\-dl\-*'
 .fi
 .PP
 List the peers that are currently unreachable:

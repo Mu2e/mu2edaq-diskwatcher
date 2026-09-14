@@ -408,6 +408,32 @@ def test_entries_fold_in_reachable_peers_on_request(client, federated):
     assert client.get("/api/entries?peers=1&monitored=space").get_json()["total"] == 2
 
 
+def test_peers_endpoint_reports_discovery_state(client, federated):
+    payload = client.get("/api/peers").get_json()
+    d = payload["discovery"]
+    assert d["enabled"] is False and d["scans"] == 0
+    assert d["filter"] == {"app": "diskwatcher"}
+    assert set(d) >= {"available", "interval", "timeout", "grace", "exclude",
+                      "last_scan", "last_scan_age_s", "responders", "excluded",
+                      "error", "peers"}
+
+
+def test_peer_records_carry_provenance(client, federated):
+    payload = client.get("/api/peers").get_json()
+    for peer in payload["peers"]:
+        assert peer["source"] == "static"
+        assert "discovery_id" in peer and "discovery_missing" in peer
+
+
+def test_config_page_shows_discovery_card(client, populated):
+    populated.discover.update({"enabled": True, "filter": {"app": "diskwatcher",
+                               "host": "mu2e-dl-*"}, "interval": 60, "grace": 180,
+                               "exclude": ["mu2e-dl-99"]})
+    body = client.get("/config").get_data(as_text=True)
+    assert "Peer Discovery" in body
+    assert "host=mu2e-dl-*" in body and "mu2e-dl-99" in body
+
+
 def test_peers_endpoint_reports_status_without_entries(client, federated):
     payload = client.get("/api/peers").get_json()
     assert payload["counts"]["configured"] == 2

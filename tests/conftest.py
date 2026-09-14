@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
+from mu2edaq_diskwatcher.peers import DISCOVERY           # noqa: E402
 from mu2edaq_diskwatcher.settings import reset_settings   # noqa: E402
 from mu2edaq_diskwatcher.state import PEERS, STORE        # noqa: E402
 
@@ -21,10 +22,12 @@ def clean_state():
     reset_settings()
     STORE.replace([])
     PEERS.clear()
+    DISCOVERY.clear()
     yield
     reset_settings()
     STORE.replace([])
     PEERS.clear()
+    DISCOVERY.clear()
 
 
 @pytest.fixture

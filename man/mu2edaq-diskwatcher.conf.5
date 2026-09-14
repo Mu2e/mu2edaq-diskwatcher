@@ -528,6 +528,96 @@ peers:
     timeout: 5
   - mu2e-dl-02.fnal.gov:5002       # bare form; label defaults to host:port
 .fi
+.SS Finding peers with discovery
+Instead of, or as well as, listing peers,
+.B peers
+may be a mapping with two keys.
+.B static
+holds the list described above.
+.B discover
+makes this instance scan for other diskwatchers with
+.BR mu2edaq\-discovery (1)
+\(em every diskwatcher answers its multicast queries \(em and federate
+whatever answers.
+Writing the block turns discovery on unless it says
+.BR "enabled: false" .
+.TP
+.B enabled
+Default:
+.B true
+when the block is present.
+.TP
+.B filter
+A mapping of fnmatch globs matched against the responder's
+.BR app ", " name " and " host .
+.B app
+defaults to
+.B diskwatcher
+and should be left so; add
+.B host
+to restrict federation to a set of nodes.
+.TP
+.B interval
+Seconds between scans.
+Default:
+.BR watcher.peer_interval .
+.TP
+.B timeout
+Seconds one scan waits for replies.
+Default:
+.BR 2 .
+.TP
+.B grace
+Seconds a peer may go unanswered before it is dropped.
+Multicast replies do get lost, so a peer is kept, and still fetched, through
+missed scans; only after
+.B grace
+seconds without an answer is it removed.
+Default: three scan intervals.
+.TP
+.B exclude
+Host globs never to federate, matched against both the full and the short
+hostname.
+.PP
+Discovery decides which peers are
+.IR listed ;
+each peer's own HTTP fetch decides whether it is
+.IR up .
+A discovered peer that also appears under
+.B static
+takes that entry's label, timeout and
+.BR enabled .
+This instance's own responder is recognised by its
+.B instance_id
+and never federated.
+Each peer's origin is reported as
+.B source
+.RB ( static " or " discovered )
+in
+.B /api/peers
+and on the dashboards.
+.PP
+The package is optional: if
+.B discover
+is enabled and
+.B mu2edaq\-discovery
+is not installed, a warning appears on
+.B /config
+and static peers keep working.
+Multicast must be routed between the nodes concerned.
+.PP
+.nf
+peers:
+  static:
+    - url:   http://mu2e-dl-01.fnal.gov:5002
+      label: "mu2e-dl-01"
+  discover:
+    filter:   {app: diskwatcher, host: "mu2e-dl-*"}
+    interval: 60
+    timeout:  2.0
+    grace:    180
+    exclude:  ["mu2e-dl-99"]
+.fi
 .SH ALARM STATES
 .SS Staleness (the / page)
 .BR ok ", " stale ", " missing ", " unmonitored .

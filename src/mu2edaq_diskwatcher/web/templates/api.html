@@ -27,9 +27,11 @@
         {{ ep('/api/entries', 'Filtered entry list. Query parameters: kind=file|directory,
               monitored=space|size, state=GOOD|WARNING|CRITICAL|FULL|EMPTY|MISSING|
               UNKNOWN|ok|stale|unmonitored.') }}
-        {{ ep('/api/peers', 'Connection status of every configured peer: label,
-              URL, status, the version and hostname it reports, fetch timing, and
-              per-peer watch/space/size summaries. No entries.') }}
+        {{ ep('/api/peers', 'Connection status of every peer: label, URL, source
+              (static or discovered), status, the version and hostname it reports,
+              fetch timing, and per-peer watch/space/size summaries. No entries.
+              discovery reports the last mu2edaq-discovery scan: when, how many
+              responders answered, how many were set aside and why.') }}
         {{ ep('/api/config', 'Active settings, the parsed watch list, the peer
               list, and any configuration problems detected at startup.') }}
         {{ ep('/api/health', 'Poller liveness. status is "degraded" when the last

@@ -90,6 +90,7 @@ tr.group-row.peer-row.peer-pending td,
 tr.group-row.peer-row.peer-disabled td { background-color: #eceff2 !important; }
 
 .peer-status { font-size: .68em; vertical-align: middle; margin-left: .5rem; }
+.peer-source { font-size: .68em; vertical-align: middle; }
 .group-details { margin-left: .6rem; font-size: .78em; color: #6c757d; }
 .group-details .group-url { color: #495057; text-decoration: none; font-family: monospace; }
 .group-details .group-url:hover { text-decoration: underline; }

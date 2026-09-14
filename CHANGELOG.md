@@ -66,6 +66,33 @@ Not yet tagged. On branch `feature/peer-federation`.
   summary over local plus reachable peers, with `local` and `peers` counts).
   `/api/entries?peers=1` folds reachable peers' entries into the flat list,
   each stamped `peer` and `peer_url`, and `&peer=LABEL` keeps one peer's.
+- **Peers found by discovery.** `peers:` may now be a mapping with `static:`
+  (the list above) and `discover:`. With `discover:` present, the peer thread
+  runs one `mu2edaq-discovery` multicast scan per scan interval (default: the
+  peer interval), turns each `diskwatcher` responder into a peer
+  (`scheme://host:port`, labelled by short hostname) and merges the result
+  with the static list, a static entry winning on the same URL so a
+  hand-written label, timeout or `enabled: false` is kept. `filter:` takes
+  fnmatch globs on `app`, `name`, `host` (`app` defaults to `diskwatcher`);
+  `exclude:` names host globs never to federate; `timeout:` bounds one scan.
+
+  Three rules: the responder now advertises this process's `instance_id` in
+  its `meta`, so a record that is ourselves is set aside before any HTTP
+  request (the HTTP-side check stays for older peers); a peer that stops
+  answering is *kept and still fetched* until it has been unseen for `grace:`
+  seconds (default three scan intervals), its heading saying *not seen by
+  discovery for N s* meanwhile, because multicast replies do get lost and one
+  lost reply must not blank a node's rows; and every peer record carries
+  `source: static|discovered` plus its discovery `id`. Discovery decides what
+  is listed; HTTP decides what is up.
+
+  Overrides: `--discover-peers`, `--no-discover-peers`, `--discover-filter
+  KEY=GLOB` (repeatable), `MU2EDAQ_DISKWATCHER_DISCOVER_PEERS`,
+  `MU2EDAQ_DISKWATCHER_DISCOVER_FILTER`. The package stays optional: enabled
+  without it installed is a warning on `/config`, and static peers still work.
+  `/api/peers` gains `discovery` (last scan time, responders, set-aside counts
+  by reason, error, the discovered URLs) and `/config` a Peer Discovery card.
+  A flat `peers:` list still means static peers only.
 - **`/api/peers`**: connection status of every configured peer, without
   entries, plus per-peer watch/space/size summaries and a `counts` total.
 - **`hostname` and `instance_id`** on `/api/state` and `/api/version`;

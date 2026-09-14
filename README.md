@@ -227,6 +227,49 @@ python diskwatcher.py --no-peers            # ignore every configured peer
 the environment) override the two `watcher` keys. Connection status is on the
 Config page and at `/api/peers`.
 
+#### Finding peers with discovery
+
+Every diskwatcher answers `mu2edaq-discovery` multicast queries, so peers can
+be found instead of listed. `peers:` may be a mapping with `static:` (the list
+above) and `discover:`:
+
+```yaml
+peers:
+  static:
+    - url:   http://mu2e-dl-01.fnal.gov:5002
+      label: "mu2e-dl-01"
+  discover:
+    filter:   {app: diskwatcher, host: "mu2e-dl-*"}   # fnmatch globs
+    interval: 60          # seconds between scans; default: peer_interval
+    timeout:  2.0         # seconds a scan waits for replies
+    grace:    180         # seconds unseen before a peer is dropped; default 3×interval
+    exclude:  ["mu2e-dl-99"]
+```
+
+Writing the block turns it on (`enabled: false` keeps it but off). Every scan
+interval the peer thread runs one multicast query, turns each `diskwatcher`
+responder into a peer (`scheme://host:port`, labelled by short hostname) and
+merges the result with the static list, static winning on the same URL so a
+hand-written label or timeout is kept. Three rules keep it safe:
+
+- **Self-exclusion by id.** The responder now advertises `instance_id` in its
+  `meta`, so a record that is this very process is set aside before any HTTP
+  request. The existing HTTP-side check remains for older peers.
+- **Disappearance is not removal.** A peer that stops answering is kept, and
+  still fetched, until it has gone unseen for `grace` seconds; its heading says
+  *not seen by discovery for N s* meanwhile. Discovery decides what is listed;
+  HTTP decides what is up.
+- **Provenance is visible.** Each peer carries `source: static|discovered` and
+  its discovery `id`. `/api/peers` reports the last scan, how many answered and
+  how many were set aside and why; the Config page has a Peer Discovery card.
+
+Overrides: `--discover-peers` / `--no-discover-peers`, `--discover-filter
+host=mu2e-dl-*` (repeatable), `MU2EDAQ_DISKWATCHER_DISCOVER_PEERS`,
+`MU2EDAQ_DISKWATCHER_DISCOVER_FILTER`. The `mu2edaq-discovery` package is
+optional: with it missing and discovery enabled, `/config` shows a warning and
+static peers keep working. Multicast (`239.255.42.99:28999`, TTL 4) must be
+routed between the nodes concerned; across VLANs that depends on the switches.
+
 ### Precedence
 
 ```
@@ -235,7 +278,8 @@ command line  >  environment  >  config file  >  built-in defaults
 
 Environment overrides are named `MU2EDAQ_DISKWATCHER_*`: `CONFIG`, `WEB_HOST`,
 `WEB_PORT`, `POLL_INTERVAL`, `DEFAULT_DELAY`, `DAEMON`, `RUN_DIR`, `PID_FILE`,
-`LOG_FILE`, `VERBOSE`, `PEERS`, `PEER_TIMEOUT`, `PEER_INTERVAL`. An unparseable value is
+`LOG_FILE`, `VERBOSE`, `PEERS`, `PEER_TIMEOUT`, `PEER_INTERVAL`,
+`DISCOVER_PEERS`, `DISCOVER_FILTER`. An unparseable value is
 warned about and ignored. The peer list is layered too: `--peer` replaces
 `PEERS`, which replaces the file's `peers:`.
 

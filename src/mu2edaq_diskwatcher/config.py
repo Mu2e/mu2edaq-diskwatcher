@@ -17,6 +17,14 @@ from .thresholds import Threshold, ThresholdError, check_order, parse_size_thres
 ENTRY_KEYS = {"path", "delay", "label", "ssh", "space", "size"}
 #: Keys accepted on a `peers:` entry.
 PEER_KEYS = {"url", "label", "timeout", "enabled"}
+#: Keys accepted when `peers:` is a mapping rather than a list.
+PEERS_SECTION_KEYS = {"static", "discover"}
+#: Keys accepted inside `peers.discover:`.
+DISCOVER_KEYS = {"enabled", "filter", "interval", "timeout", "exclude", "grace"}
+#: Filter keys the discovery protocol understands (fnmatch globs).
+DISCOVER_FILTER_KEYS = ("app", "name", "host")
+#: What a diskwatcher's responder advertises itself as.
+DISCOVER_APP = "diskwatcher"
 #: Keys accepted inside a `space:` block.
 SPACE_KEYS = {"warning", "critical", "full"}
 #: Keys accepted inside a `size:` block.  `max:` is a synonym for `full:`,
@@ -325,30 +333,152 @@ def _dedupe_peers(peers: List[dict], issues: List[str]) -> List[dict]:
     return out
 
 
-def peers_from_config(cfg: dict) -> Tuple[List[dict], List[str]]:
-    """Build the peer list from the ``peers`` top-level key, plus any problems.
+def default_discover() -> dict:
+    """The ``peers.discover`` block with nothing set: discovery off."""
+    return {
+        "enabled":  False,
+        "filter":   {"app": DISCOVER_APP},
+        "interval": None,        # seconds between scans; None -> peer interval
+        "timeout":  2.0,         # seconds a scan waits for replies
+        "exclude":  [],          # host globs never to federate
+        "grace":    None,        # seconds before a vanished peer is dropped;
+                                 # None -> three scan intervals
+    }
 
-    Each item is a mapping with ``url`` (required), and optional ``label``,
-    ``timeout`` and ``enabled``; or a bare URL string.  As with watch entries,
-    a bad item is dropped with a warning and the rest survive.
+
+def parse_filter_spec(raw: str) -> Dict[str, str]:
+    """``"host=mu2e-dl-*,app=diskwatcher"`` -> filter dict.  Raises ValueError.
+
+    The command-line and environment spelling of ``peers.discover.filter``.
+    Pairs are separated by commas or whitespace.
+    """
+    out: Dict[str, str] = {}
+    for pair in raw.replace(",", " ").split():
+        if "=" not in pair:
+            raise ValueError(f"{pair!r} is not KEY=GLOB")
+        key, glob = pair.split("=", 1)
+        key = key.strip()
+        if key not in DISCOVER_FILTER_KEYS:
+            raise ValueError(f"{key!r} is not one of {', '.join(DISCOVER_FILTER_KEYS)}")
+        if not glob.strip():
+            raise ValueError(f"{key}: empty pattern")
+        out[key] = glob.strip()
+    out.setdefault("app", DISCOVER_APP)
+    return out
+
+
+def _discover_from_item(raw, issues: List[str]) -> dict:
+    """Validate ``peers.discover``; every problem falls back to a default."""
+    d = default_discover()
+    if raw is None:
+        return d
+    where = "[peers.discover]"
+    if isinstance(raw, bool):
+        d["enabled"] = raw
+        return d
+    if not isinstance(raw, dict):
+        issues.append(f"{where}: must be a mapping or true/false; discovery disabled")
+        return d
+
+    for key in raw:
+        if key not in DISCOVER_KEYS:
+            issues.append(f"{where}: unknown key {key!r}; ignored")
+
+    # Writing the block at all means "on", unless it says otherwise.
+    d["enabled"] = bool(raw.get("enabled", True))
+
+    filt = raw.get("filter")
+    if filt is not None:
+        if not isinstance(filt, dict):
+            issues.append(f"{where}: filter: must be a mapping; using app={DISCOVER_APP}")
+        else:
+            clean: Dict[str, str] = {}
+            for key, glob in filt.items():
+                if key not in DISCOVER_FILTER_KEYS:
+                    issues.append(f"{where}: filter: unknown key {key!r} (allowed: "
+                                  f"{', '.join(DISCOVER_FILTER_KEYS)}); ignored")
+                elif not isinstance(glob, str) or not glob.strip():
+                    issues.append(f"{where}: filter: {key}: must be a non-empty glob; ignored")
+                else:
+                    clean[key] = glob.strip()
+            clean.setdefault("app", DISCOVER_APP)
+            d["filter"] = clean
+
+    for key, kind in (("interval", int), ("timeout", float), ("grace", int)):
+        if raw.get(key) is None:
+            continue
+        try:
+            value = kind(raw[key])
+            if value <= 0:
+                raise ValueError
+            d[key] = value
+        except (TypeError, ValueError):
+            issues.append(f"{where}: {key}: {raw[key]!r} is not a positive number; "
+                          f"using the default")
+
+    exclude = raw.get("exclude")
+    if exclude is not None:
+        if isinstance(exclude, str):
+            exclude = [exclude]
+        if not isinstance(exclude, list):
+            issues.append(f"{where}: exclude: must be a list of host globs; ignored")
+        else:
+            d["exclude"] = [str(x).strip() for x in exclude if str(x).strip()]
+    return d
+
+
+def _static_from_list(raw, where: str, issues: List[str]) -> List[dict]:
+    if not isinstance(raw, list):
+        issues.append(f"{where} must be a list of URLs or mappings; ignored")
+        return []
+    peers = []
+    for index, item in enumerate(raw):
+        peer = _peer_from_item(item, f"{where[:-1]} #{index + 1}]", issues)
+        if peer is not None:
+            peer["source"] = "static"
+            peers.append(peer)
+    return _dedupe_peers(peers, issues)
+
+
+def peers_from_config(cfg: dict) -> Tuple[List[dict], dict, List[str]]:
+    """Build the static peer list and the discovery block from ``peers``.
+
+    Two shapes are accepted::
+
+        peers:                      # shorthand: a static list
+          - http://a:5002
+        peers:
+          static: [...]             # the same list
+          discover:                 # find peers with mu2edaq-discovery
+            filter: {host: "mu2e-dl-*"}
+
+    Each static item is a mapping with ``url`` (required), and optional
+    ``label``, ``timeout`` and ``enabled``; or a bare URL string.  As with
+    watch entries, a bad item is dropped with a warning and the rest survive.
+    Returns ``(static_peers, discover, issues)``.
     """
     issues: List[str] = []
     raw = cfg.get("peers")
     if raw is None:
-        return [], issues
-    if not isinstance(raw, list):
-        issues.append("[peers] must be a list of URLs or mappings; ignored")
-        _report(issues)
-        return [], issues
+        return [], default_discover(), issues
 
-    peers = []
-    for index, item in enumerate(raw):
-        peer = _peer_from_item(item, f"[peers #{index + 1}]", issues)
-        if peer is not None:
-            peers.append(peer)
-    peers = _dedupe_peers(peers, issues)
+    if isinstance(raw, list):
+        peers = _static_from_list(raw, "[peers]", issues)
+        discover = default_discover()
+    elif isinstance(raw, dict):
+        for key in raw:
+            if key not in PEERS_SECTION_KEYS:
+                issues.append(f"[peers]: unknown key {key!r} (expected static: or "
+                              f"discover:); ignored")
+        peers = _static_from_list(raw.get("static") or [], "[peers.static]", issues)
+        discover = _discover_from_item(raw.get("discover"), issues)
+    else:
+        issues.append("[peers] must be a list, or a mapping with static: and "
+                      "discover:; ignored")
+        peers, discover = [], default_discover()
+
     _report(issues)
-    return peers, issues
+    return peers, discover, issues
 
 
 def peers_from_urls(urls: Iterable[str]) -> Tuple[List[dict], List[str]]:
@@ -358,6 +488,7 @@ def peers_from_urls(urls: Iterable[str]) -> Tuple[List[dict], List[str]]:
     for raw in urls:
         peer = _peer_from_item(str(raw), "[--peer]", issues)
         if peer is not None:
+            peer["source"] = "static"
             peers.append(peer)
     return _dedupe_peers(peers, issues), issues
 

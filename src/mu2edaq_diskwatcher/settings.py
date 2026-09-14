@@ -22,7 +22,7 @@ import socket
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
-from .config import peers_from_urls
+from .config import default_discover, parse_filter_spec, peers_from_urls
 
 #: Prefix for every environment-variable override.
 ENV_PREFIX = "MU2EDAQ_DISKWATCHER_"
@@ -112,6 +112,8 @@ _ENV_MAP = {
     ENV_PREFIX + "PEERS":         ("peers",         _peer_list),
     ENV_PREFIX + "PEER_TIMEOUT":  ("peer_timeout",  float),
     ENV_PREFIX + "PEER_INTERVAL": ("peer_interval", int),
+    ENV_PREFIX + "DISCOVER_PEERS":  ("discover_peers",  None),
+    ENV_PREFIX + "DISCOVER_FILTER": ("discover_filter", parse_filter_spec),
 }
 
 _TRUE  = {"1", "true", "yes", "on"}
@@ -155,8 +157,15 @@ class Settings:
     #: Flat list of watch-entry dicts produced by :func:`config.entries_from_config`.
     entries: List[dict] = field(default_factory=list)
 
-    #: Peer instances to federate, from :func:`config.peers_from_config`.
+    #: Static peer instances to federate, from :func:`config.peers_from_config`.
     peers: List[dict] = field(default_factory=list)
+
+    #: The ``peers.discover`` block: find peers with mu2edaq-discovery.
+    discover: dict = field(default_factory=default_discover)
+    #: Environment / command-line overrides folded into ``discover`` by
+    #: :meth:`resolve_discover`; ``None`` means "not supplied".
+    discover_peers:  Optional[bool] = None
+    discover_filter: Optional[Dict[str, str]] = None
 
     #: Human-readable config problems, shown on /config and in /api/config.
     config_issues: List[str] = field(default_factory=list)
@@ -193,7 +202,7 @@ class Settings:
                 try:
                     value = coerce(raw)
                 except (TypeError, ValueError) as exc:
-                    detail = f" ({exc})" if coerce is _peer_list else ""
+                    detail = f" ({exc})" if coerce in (_peer_list, parse_filter_spec) else ""
                     issues.append(f"{name}: {raw!r} is not valid{detail}; ignored")
                     continue
             setattr(self, attr, value)
@@ -202,6 +211,24 @@ class Settings:
     def effective_peer_interval(self) -> int:
         """Seconds between peer fetches, falling back to the poll interval."""
         return self.peer_interval if self.peer_interval else self.poll_interval
+
+    def resolve_discover(self) -> dict:
+        """Fold the scalar overrides into ``discover`` and fill its defaults.
+
+        Called once by ``main()`` after every layer.  ``interval`` defaults to
+        the peer interval and ``grace`` to three scan intervals, so a single
+        lost multicast reply never drops a peer.
+        """
+        d = self.discover
+        if self.discover_peers is not None:
+            d["enabled"] = self.discover_peers
+        if self.discover_filter:
+            d["filter"] = dict(self.discover_filter)
+        if not d.get("interval"):
+            d["interval"] = self.effective_peer_interval()
+        if not d.get("grace"):
+            d["grace"] = 3 * d["interval"]
+        return d
 
     def resolve_paths(self) -> Dict[str, str]:
         """Expand placeholders in ``run_dir``, ``pid_file`` and ``log_file`` in place.
@@ -229,7 +256,8 @@ class Settings:
         """Scalar settings only — for the /config page and /api/config."""
         return {f.name: getattr(self, f.name)
                 for f in fields(self)
-                if f.name not in ("entries", "peers", "config_issues")}
+                if f.name not in ("entries", "peers", "config_issues",
+                                  "discover_peers", "discover_filter")}
 
 
 _SETTINGS = Settings()

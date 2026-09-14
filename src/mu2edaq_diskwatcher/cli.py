@@ -22,10 +22,16 @@ import sys
 import threading
 
 from . import __version__
-from .config import entries_from_config, load_config, peers_from_config, peers_from_urls
+from .config import (
+    entries_from_config,
+    load_config,
+    parse_filter_spec,
+    peers_from_config,
+    peers_from_urls,
+)
 from .daemon import daemonize, write_pid_file
 from .discovery import start_responder, stop_responder
-from .peers import peer_loop
+from .peers import discovery_available, peer_loop
 from .poller import do_poll, poll_loop
 from .settings import ENV_PREFIX, get_settings, short_hostname
 from .state import PEERS
@@ -111,6 +117,20 @@ def build_parser(defaults) -> argparse.ArgumentParser:
         "--peer-interval", type=int, default=None, metavar="SECONDS",
         help="Seconds between peer fetches (default: the poll interval)",
     )
+    peers.add_argument(
+        "--discover-peers", action="store_true", default=None,
+        help="Find peers with mu2edaq-discovery as well as any listed "
+             "(overrides peers.discover.enabled)",
+    )
+    peers.add_argument(
+        "--no-discover-peers", action="store_true", default=None,
+        help="Do not scan for peers even if the config enables it",
+    )
+    peers.add_argument(
+        "--discover-filter", action="append", default=None, metavar="KEY=GLOB",
+        help="Discovery filter, e.g. host=mu2e-dl-* (repeatable; keys app, "
+             "name, host; replaces peers.discover.filter)",
+    )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}",
     )
@@ -147,8 +167,9 @@ def main() -> None:
     )
     # The peer list is a layered setting too: the YAML `peers:` list, then
     # $MU2EDAQ_DISKWATCHER_PEERS, then --peer, each *replacing* the previous.
-    yaml_peers, peer_issues = peers_from_config(cfg)
+    yaml_peers, discover, peer_issues = peers_from_config(cfg)
     settings.peers = yaml_peers
+    settings.discover = discover
 
     # ---- layer 3: environment ----
     env_issues = settings.apply_env()
@@ -164,6 +185,19 @@ def main() -> None:
         for issue in cli_peer_issues:
             print(f"[Config] Warning: {issue}", file=sys.stderr)
         peer_issues += cli_peer_issues
+    cli_discover = None
+    if args.no_discover_peers:
+        cli_discover = False
+    elif args.discover_peers:
+        cli_discover = True
+    cli_filter = None
+    if args.discover_filter:
+        try:
+            cli_filter = parse_filter_spec(" ".join(args.discover_filter))
+        except ValueError as exc:
+            msg = f"--discover-filter: {exc}; ignored"
+            print(f"[Config] Warning: {msg}", file=sys.stderr)
+            peer_issues.append(msg)
     settings.apply(
         web_host      = args.host,
         web_port      = args.port,
@@ -177,6 +211,8 @@ def main() -> None:
         peer_timeout  = args.peer_timeout,
         peer_interval = args.peer_interval,
         peers         = cli_peers,
+        discover_peers  = cli_discover,
+        discover_filter = cli_filter,
         # Re-assert the resolved path: apply_env() would otherwise leave the
         # /config page showing the environment's value even when --config won.
         config_path   = config_path if cfg else None,
@@ -187,6 +223,13 @@ def main() -> None:
     # process writes ends up keyed by node, so a checkout shared over NFS by
     # several DAQ nodes never has two daemons fighting over one pid file.
     settings.resolve_paths()
+    settings.resolve_discover()
+    if settings.discover["enabled"] and not discovery_available():
+        msg = ("peers.discover: mu2edaq-discovery is not installed, so no peers "
+               "will be discovered; static peers still work "
+               "(see bootstrap_diskwatcher.sh)")
+        print(f"[Config] Warning: {msg}", file=sys.stderr)
+        peer_issues.append(msg)
 
     # Entries are built last: the delay fallback depends on the final
     # default_delay, which any of the three layers above may have set.
@@ -194,7 +237,7 @@ def main() -> None:
     settings.entries = entries
     settings.config_issues = env_issues + issues + peer_issues
 
-    if not entries and not settings.peers:
+    if not entries and not settings.peers and not settings.discover["enabled"]:
         print("[Config] Warning: no files, paths or peers configured. "
               "Add entries to the YAML config file.", file=sys.stderr)
 
@@ -229,12 +272,20 @@ def main() -> None:
     # web server for a full timeout.  Until the first fetch lands the peer
     # shows as "connecting" on the dashboards.
     PEERS.configure(settings.peers)
-    if settings.peers:
+    discover = settings.discover
+    if settings.peers or discover["enabled"]:
         enabled = [p for p in settings.peers if p.get("enabled", True)]
-        print(f"[Peers]  Federating {len(enabled)} peer(s), every "
-              f"{settings.effective_peer_interval()} s, timeout "
-              f"{settings.peer_timeout:g} s: "
-              + ", ".join(f"{p['label']} <{p['url']}>" for p in enabled))
+        if enabled:
+            print(f"[Peers]  Federating {len(enabled)} static peer(s), every "
+                  f"{settings.effective_peer_interval()} s, timeout "
+                  f"{settings.peer_timeout:g} s: "
+                  + ", ".join(f"{p['label']} <{p['url']}>" for p in enabled))
+        if discover["enabled"]:
+            filt = " ".join(f"{k}={v}" for k, v in sorted(discover["filter"].items()))
+            print(f"[Peers]  Discovering peers every {discover['interval']} s "
+                  f"(filter: {filt}; grace {discover['grace']} s"
+                  + (f"; excluding {', '.join(discover['exclude'])}"
+                     if discover["exclude"] else "") + ")")
         threading.Thread(target=peer_loop, daemon=True).start()
 
     # Imported here so `--version` and `--help` never pay for Flask.

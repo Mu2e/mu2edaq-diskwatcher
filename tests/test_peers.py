@@ -341,3 +341,195 @@ def test_configure_drops_peers_no_longer_present(settings):
     PEERS.configure([a, b])
     PEERS.configure([b])
     assert [p["url"] for p in PEERS.snapshot()] == ["http://b:1"]
+
+
+# ------------------------------------------------------------- discovery
+# The multicast scan itself belongs to mu2edaq-discovery and is tested there.
+# What is ours is everything done with the records: turning them into peers,
+# excluding ourselves and unwanted hosts, merging with the static list, and
+# not dropping a peer on one missed reply.  `_run_discover` is the seam.
+from mu2edaq_diskwatcher.peers import (  # noqa: E402
+    DISCOVERY, active_peers, host_excluded, merge_peers, record_to_peer,
+)
+
+
+def announce(host, port=5002, **extra):
+    """A record shaped like protocol.build_announce() output."""
+    rec = {"proto": "mu2edaq-discovery/1", "type": "ANNOUNCE", "id": f"id-{host}",
+           "name": "Disk Watcher", "app": "diskwatcher", "host": host, "port": port,
+           "scheme": "http", "version": "1.3.0", "pid": 1, "started": "2026-09-14T00:00:00Z"}
+    rec.update(extra)
+    return rec
+
+
+@pytest.fixture
+def scans(monkeypatch):
+    """Queue of canned scan results; each call to _run_discover pops one.
+    Records the filters it was asked for."""
+    class Queue(list):
+        pass
+
+    queue, asked = Queue(), []
+
+    def fake(filter, timeout):
+        asked.append(dict(filter))
+        if not queue:
+            return []
+        result = queue.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(peers, "_run_discover", fake)
+    queue.asked = asked
+    return queue
+
+
+def enable_discovery(settings, **overrides):
+    settings.discover.update({"enabled": True, "interval": 10, "grace": 30,
+                              "timeout": 0.1, "filter": {"app": "diskwatcher"},
+                              "exclude": []})
+    settings.discover.update(overrides)
+
+
+def test_record_becomes_a_peer_with_short_label():
+    peer, reason = record_to_peer(announce("mu2e-dl-01.fnal.gov"), exclude=[])
+    assert reason is None
+    assert peer["url"] == "http://mu2e-dl-01.fnal.gov:5002"
+    assert peer["label"] == "mu2e-dl-01"
+    assert peer["source"] == "discovered" and peer["discovery_id"] == "id-mu2e-dl-01.fnal.gov"
+
+
+def test_our_own_responder_is_set_aside_before_any_http():
+    rec = announce("here", meta={"instance_id": INSTANCE_ID})
+    assert record_to_peer(rec, exclude=[]) == (None, "self")
+
+
+@pytest.mark.parametrize("patterns, host, hit", [
+    (["mu2e-dl-99"], "mu2e-dl-99.fnal.gov", True),      # short form matches
+    (["*.fnal.gov"], "mu2e-dl-01.fnal.gov", True),      # full form matches
+    (["test-*"], "test-node", True),
+    (["mu2e-dl-99"], "mu2e-dl-01.fnal.gov", False),
+])
+def test_host_exclusion_globs(patterns, host, hit):
+    assert host_excluded(host, patterns) is hit
+    peer, reason = record_to_peer(announce(host), exclude=patterns)
+    assert (peer is None) is hit and (reason == "excluded") is hit
+
+
+def test_non_http_and_malformed_records_are_set_aside():
+    assert record_to_peer(announce("x", scheme="vnc"), [])[1] == "scheme vnc"
+    assert record_to_peer({"host": "x"}, [])[1] == "malformed"
+
+
+def test_merge_static_wins_on_url():
+    static = one_peer("http://a:5002", label="A-by-hand", timeout=9)
+    found, _ = record_to_peer(announce("a"), [])
+    other, _ = record_to_peer(announce("b"), [])
+    merged = merge_peers([static], [found, other])
+    assert [p["label"] for p in merged] == ["A-by-hand", "b"]
+    assert merged[0]["timeout"] == 9 and merged[0]["source"] == "static"
+
+
+def test_active_peers_runs_a_scan_when_due_and_reuses_it_otherwise(settings, scans):
+    enable_discovery(settings, filter={"app": "diskwatcher", "host": "mu2e-*"})
+    scans.append([announce("mu2e-dl-01"), announce("mu2e-dl-02")])
+    now = 1000.0
+    found = active_peers(now)
+    assert [p["label"] for p in found] == ["mu2e-dl-01", "mu2e-dl-02"]
+    assert scans.asked == [{"app": "diskwatcher", "host": "mu2e-*"}]
+    assert all(p["discovery_missing"] is False for p in found)
+    # Not due yet: no second scan, same peers.
+    assert [p["label"] for p in active_peers(now + 5)] == ["mu2e-dl-01", "mu2e-dl-02"]
+    assert len(scans.asked) == 1
+    assert DISCOVERY.snapshot(settings.discover)["responders"] == 2
+
+
+def test_disabled_discovery_never_scans(settings, scans):
+    settings.discover["enabled"] = False
+    settings.peers = [one_peer("http://a:1")]
+    scans.append([announce("b")])
+    assert [p["url"] for p in active_peers(0.0)] == ["http://a:1"]
+    assert scans.asked == []
+
+
+def test_one_missed_reply_keeps_the_peer_flagged_not_dropped(settings, scans):
+    enable_discovery(settings)
+    scans.append([announce("a"), announce("b")])
+    active_peers(0.0)
+    scans.append([announce("a")])                         # b lost this time
+    found = active_peers(10.0)
+    by = {p["label"]: p for p in found}
+    assert set(by) == {"a", "b"}
+    assert by["b"]["discovery_missing"] is True and by["a"]["discovery_missing"] is False
+    assert by["b"]["discovery_last_seen"] == 0.0
+
+
+def test_peer_unseen_past_grace_is_dropped_and_forgotten(settings, scans):
+    enable_discovery(settings, grace=25)
+    scans.append([announce("a"), announce("b")])
+    active_peers(0.0)
+    PEERS.update("http://b:5002", peer_record({"url": "http://b:5002", "label": "b"}, "ok"))
+    scans.extend([[announce("a")], [announce("a")], [announce("a")]])
+    active_peers(10.0)
+    active_peers(20.0)
+    assert {p["label"] for p in active_peers(30.0)} == {"a"}   # 30 s > grace 25
+    assert PEERS.get("http://b:5002") is None                  # record removed too
+    assert DISCOVERY.snapshot(settings.discover)["peers"] == ["http://a:5002"]
+
+
+def test_a_static_peer_that_discovery_also_finds_is_never_removed(settings, scans):
+    enable_discovery(settings, grace=5)
+    static = one_peer("http://a:5002", label="A")
+    settings.peers = [static]
+    PEERS.configure(settings.peers)
+    scans.extend([[announce("a")], []])
+    active_peers(0.0)
+    found = active_peers(100.0)                            # a vanished from discovery
+    assert [p["label"] for p in found] == ["A"]
+    assert PEERS.get("http://a:5002") is not None
+
+
+def test_scan_failure_is_recorded_and_leaves_known_peers_alone(settings, scans):
+    enable_discovery(settings)
+    scans.append([announce("a")])
+    active_peers(0.0)
+    scans.append(OSError("multicast unavailable"))
+    found = active_peers(10.0)
+    assert [p["label"] for p in found] == ["a"]
+    snap = DISCOVERY.snapshot(settings.discover)
+    assert "multicast unavailable" in snap["error"]
+    assert snap["responders"] == 0 and snap["scans"] == 2
+
+
+def test_missing_package_is_a_clear_error(settings, scans):
+    enable_discovery(settings)
+    scans.append(ImportError("No module named 'mu2edaq_discovery'"))
+    assert active_peers(0.0) == []
+    assert DISCOVERY.snapshot(settings.discover)["error"] == "mu2edaq-discovery is not installed"
+
+
+def test_excluded_reasons_are_counted_for_the_operator(settings, scans):
+    enable_discovery(settings, exclude=["skip-*"])
+    scans.append([announce("a"), announce("skip-me"),
+                  announce("me", meta={"instance_id": INSTANCE_ID}),
+                  announce("v", scheme="vnc")])
+    assert [p["label"] for p in active_peers(0.0)] == ["a"]
+    snap = DISCOVERY.snapshot(settings.discover)
+    assert snap["responders"] == 4
+    assert snap["excluded"] == {"excluded": 1, "self": 1, "scheme vnc": 1}
+
+
+def test_do_peer_poll_fetches_discovered_peers_and_records_provenance(stub, tmp_tree, settings, scans):
+    serve_state(stub, state_payload(tmp_tree))
+    host, port = "127.0.0.1", stub.server_port
+    enable_discovery(settings)
+    scans.append([announce(host, port=port)])
+    do_peer_poll()
+    (rec,) = PEERS.snapshot()
+    assert rec["status"] == "ok" and rec["source"] == "discovered"
+    assert rec["url"] == stub.url and rec["label"] == "127"
+    assert rec["discovery_id"] == f"id-{host}"
+    assert rec["discovery_missing"] is False
+    assert rec["discovery_seen_age_s"] is not None
+    assert all(e["peer"] == "127" for e in rec["entries"])

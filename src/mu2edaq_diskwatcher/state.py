@@ -92,6 +92,12 @@ def peer_record(peer: dict, status: str = "pending") -> dict:
         "timeout":   peer.get("timeout"),
         "config_errors": list(peer.get("config_errors") or []),
 
+        # ---- provenance: written in the config, or found by discovery ----
+        "source":              peer.get("source", "static"),
+        "discovery_id":        peer.get("discovery_id"),
+        "discovery_last_seen": peer.get("discovery_last_seen"),
+        "discovery_missing":   bool(peer.get("discovery_missing", False)),
+
         # ---- connection ----
         "status":           status,          # one of PEER_STATUSES
         "ok":               status == "ok",
@@ -146,6 +152,12 @@ class PeerStore:
                 self._order.append(url)
             self._records[url] = record
 
+    def remove(self, url: str) -> None:
+        """Forget a peer, e.g. one discovery has not seen for the grace period."""
+        with self._lock:
+            self._records.pop(url, None)
+            self._order = [u for u in self._order if u != url]
+
     def get(self, url: str) -> Optional[dict]:
         with self._lock:
             return self._records.get(url)
@@ -167,6 +179,8 @@ class PeerStore:
             rec["last_ok_age_s"] = None if last_ok is None else round(now - last_ok, 1)
             rec["fetched_at_str"] = _stamp(fetched)
             rec["last_ok_str"] = _stamp(last_ok)
+            seen = rec.get("discovery_last_seen")
+            rec["discovery_seen_age_s"] = None if seen is None else round(now - seen, 1)
             # Entries left over from a fetch that has since failed.
             rec["stale"] = rec["status"] == "error" and bool(rec["entries"])
             rec["total"] = len(rec["entries"])
