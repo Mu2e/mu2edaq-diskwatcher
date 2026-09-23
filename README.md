@@ -188,8 +188,12 @@ python diskwatcher.py --daemon --run-dir '/var/run/dw-{host}-{port}'
 `config/nodes/node.template.yaml`: the two gateways, `mu2e-dl-02`,
 `mu2e-cfo-01`, `mu2e-trk-01` to `14`, `mu2e-calo-01` to `08` and `mu2e-crv-01`.
 Each watches `/data`, `/daqlogs`, `/scratch`, `/var`, `/var/log` and `/tmp`
-for free space, and `/var/log/messages` and `/var/log/secure` for size, with
-the same thresholds as the hand-written `mu2e-dl-01` file. On a node:
+for free space, and `/var/log/messages` and `/var/log/secure` for size. The
+free-space thresholds are percentages only: one template is deployed to disks
+from 20 GiB to 15 TiB, and an absolute floor sized for a big volume sits above
+the percentage levels on a small one, which misorders the thresholds and reads
+FULL on an empty disk. A test sweeps disk sizes from 10 GiB to 64 TiB to keep
+every generated config ordered. On a node:
 
 ```bash
 ./start-mu2edaq-diskwatcher.sh -c config/nodes/mu2e-diskwatcher-trk-03.yaml

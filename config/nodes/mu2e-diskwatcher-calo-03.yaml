@@ -70,48 +70,58 @@ files:
 # A path that does not exist on this node reports MISSING, which is the
 # right answer for an unmounted DAQ volume; remove the entry if the node
 # genuinely has no such area.
+#
+# Every threshold here is a percentage.  This one template is deployed to
+# disks from 20 GiB to 15 TiB, and an absolute floor that suits a big volume is
+# larger than the percentage thresholds on a small one: "10% / 5% / 500 GiB"
+# on a 50 GiB disk resolves to 5 GiB / 2.5 GiB / 500 GiB, which is misordered
+# and reads FULL on an empty disk (it did, on 27 nodes, on 2026-09-23).  A
+# pure-percentage block is checked when the config loads and cannot misorder on
+# any disk size; tests/test_packaging.py sweeps 10 GiB to 64 TiB to hold it so.
+# /data is currently a placeholder directory on the 50 GiB OS disk until the
+# NFS volume is mounted over it.
 paths:
   - path:  /data
     label: "DAQ data volume"
     space:
       warning:  "10%"
       critical: "5%"
-      full:     "500 GiB"
+      full:     "2%"
 
   - path:  /daqlogs
     label: "DAQ logs volume"
     space:
       warning:  "15%"
       critical: "5%"
-      full:     "20 GiB"
+      full:     "2%"
 
   - path:  /scratch
     label: "Scratch volume"
     space:
       warning:  "15%"
       critical: "5%"
-      full:     "100 GiB"
+      full:     "2%"
 
   - path:  /var
     label: "System /var"
     space:
       warning:  "20%"
       critical: "10%"
-      full:     "1 GiB"
+      full:     "5%"
 
   - path:  /var/log
     label: "System /var/log"
     space:
       warning:  "20%"
       critical: "10%"
-      full:     "1 GiB"
+      full:     "5%"
 
   - path:  /tmp
     label: "Temp directory"
     space:
       warning:  "20%"
       critical: "10%"
-      full:     "1 GiB"
+      full:     "5%"
 
 
 # ---------------------------------------------------------------------------

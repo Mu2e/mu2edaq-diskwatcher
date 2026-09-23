@@ -47,25 +47,27 @@ files:
       critical: "500 MiB"
       full:     "2 GiB"
 
+# Percentages only; see config/nodes/node.template.yaml for why an absolute
+# floor misorders on small disks.
 paths:
   - path:  /data
     label: "DAQ data volume"
-    space: {warning: "10%", critical: "5%", full: "500 GiB"}
+    space: {warning: "10%", critical: "5%", full: "2%"}
   - path:  /daqlogs
     label: "DAQ logs volume"
-    space: {warning: "15%", critical: "5%", full: "20 GiB"}
+    space: {warning: "15%", critical: "5%", full: "2%"}
   - path:  /scratch
     label: "Scratch volume"
-    space: {warning: "15%", critical: "5%", full: "100 GiB"}
+    space: {warning: "15%", critical: "5%", full: "2%"}
   - path:  /var
     label: "System /var"
-    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+    space: {warning: "20%", critical: "10%", full: "5%"}
   - path:  /var/log
     label: "System /var/log"
-    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+    space: {warning: "20%", critical: "10%", full: "5%"}
   - path:  /tmp
     label: "Temp directory"
-    space: {warning: "20%", critical: "10%", full: "1 GiB"}
+    space: {warning: "20%", critical: "10%", full: "5%"}
 
 
 # ---------------------------------------------------------------------------

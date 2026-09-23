@@ -82,9 +82,11 @@ paths:
   - path:  /scratch
     label: "Scratch volume"
     space:
+      # Percentages only: "full: 100 GiB" was above the 5% critical level on
+      # this 931 GiB disk, so the thresholds were misordered.
       warning:  "15%"
       critical: "5%"
-      full:     "100 GiB"
+      full:     "2%"
 
   - path:  /home
     label: "Home directories"

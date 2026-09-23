@@ -136,6 +136,48 @@ def test_node_configs_match_the_template_and_watch_the_six_areas():
     assert "28 static peers" in agg_line
 
 
+#: Disk sizes the fleet actually spans, 20 GiB (/var/log) to 15 TiB (dl-02's
+#: /data), plus margin either side.
+_CAPACITIES = [int(g * 2**30) for g in (10, 20, 50, 100, 250, 500, 1024, 4096, 16384, 65536)]
+
+
+def _space_blocks(path):
+    import yaml
+    from mu2edaq_diskwatcher.config import entries_from_config
+    entries, _ = entries_from_config(yaml.safe_load(path.read_text()) or {})
+    return [(e["path"], e["space"]) for e in entries if e.get("space")]
+
+
+@pytest.mark.parametrize("name", sorted(
+    [str(p.relative_to(REPO / "config")) for p in (REPO / "config" / "nodes").glob("mu2e-diskwatcher-*.yaml")]
+    + ["mu2e-diskwatcher-mgr-01.yaml"]))
+def test_generated_space_thresholds_are_ordered_on_every_disk_size(name):
+    """A generated config is deployed to nodes whose disks for the same path
+    range from 50 GiB to 15 TiB, so its thresholds must escalate whatever the
+    capacity.  Observed for real on 2026-09-23: "10% / 5% / 500 GiB" on /data
+    and "15% / 5% / 100 GiB" on /scratch misordered on 56 of 175 readings and
+    reported 37 empty disks as FULL."""
+    from mu2edaq_diskwatcher.thresholds import check_order
+    for area, limits in _space_blocks(REPO / "config" / name):
+        for total in _CAPACITIES:
+            resolved = {lvl: (t.resolve(total) if t is not None else None)
+                        for lvl, t in limits.items()}
+            assert check_order(resolved, descending=True), \
+                (name, area, total // 2**30, {k: (v.raw if v else None) for k, v in limits.items()})
+
+
+def test_dl_01_space_thresholds_are_ordered_on_its_own_disks():
+    """The hand-written dl-01 config only has to fit dl-01.  Capacities as
+    measured on 2026-09-23."""
+    from mu2edaq_diskwatcher.thresholds import check_order
+    measured = {"/data": 12.7 * 2**40, "/daqlogs": 5.0 * 2**40, "/scratch": 931.1 * 2**30,
+                "/home": 5.0 * 2**40, "/var": 50 * 2**30, "/var/log": 20 * 2**30, "/tmp": 50 * 2**30}
+    for area, limits in _space_blocks(REPO / "config" / "mu2e-diskwatcher-dl-01.yaml"):
+        total = int(measured[area])
+        resolved = {lvl: (t.resolve(total) if t is not None else None) for lvl, t in limits.items()}
+        assert check_order(resolved, descending=True), (area, total // 2**30)
+
+
 def test_aggregator_config_lists_the_whole_fleet_statically_and_by_probe():
     """mu2e-mgr-01 shows everything.  Static entries do not depend on
     multicast; the same hosts are probed by unicast because multicast on the

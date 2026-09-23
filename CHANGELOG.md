@@ -198,6 +198,22 @@ Not yet tagged. On branch `feature/peer-federation`.
 
 ### Fixed
 
+- **Misordered free-space thresholds in the generated node configs.** The
+  template mixed percentages with absolute floors: `/data` was
+  `10% / 5% / 500 GiB` and `/scratch` `15% / 5% / 100 GiB`. On the fleet's
+  50 GiB and 100 GiB disks the absolute `full` resolved above `warning`, so
+  on 2026-09-23 the watcher's own `space_limits_ordered` check was false on
+  56 of 175 readings and 37 nearly empty disks read FULL (27 `/data`, most of
+  them the new placeholder directories, and 10 `/scratch`). Every free-space
+  block in `config/nodes/node.template.yaml` and
+  `config/nodes/aggregator.template.yaml` is now percentages only
+  (`/data 10/5/2%`, `/daqlogs` and `/scratch 15/5/2%`, `/var`, `/var/log`,
+  `/tmp 20/10/5%`), which is checked at load time and cannot misorder on any
+  disk size; the 28 generated files are regenerated.
+  `config/mu2e-diskwatcher-dl-01.yaml`'s `/scratch` changes likewise; its
+  other blocks were ordered on dl-01's own disks and are unchanged. New tests
+  resolve every generated block against capacities from 10 GiB to 64 TiB, and
+  dl-01's against its measured capacities.
 - **The start and stop scripts could mistake any Python process for the
   daemon if its interpreter path contained the checkout's name.** The
   process-table matcher looked for `mu2edaq-diskwatcher` anywhere on the
