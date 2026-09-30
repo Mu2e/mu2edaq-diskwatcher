@@ -24,12 +24,12 @@ def test_installed_metadata_matches_the_source():
     assert installed == mu2edaq_diskwatcher.__version__
 
 
-@pytest.mark.parametrize("page", ["mu2edaq-diskwatcher.1", "mu2edaq-diskwatcher.conf.5"])
+@pytest.mark.parametrize("page", ["man1/mu2edaq-diskwatcher.1",
+                                  "man5/mu2edaq-diskwatcher.conf.5"])
 def test_man_page_version_matches_the_code(page):
     """The old man page said 1.1.0 while the code said 1.0.0."""
     path = REPO / "man" / page
-    if not path.exists():
-        pytest.skip(f"{page} not present")
+    assert path.exists(), f"{page} not present"
     header = next(line for line in path.read_text().splitlines()
                   if line.startswith(".TH"))
     assert mu2edaq_diskwatcher.__version__ in header, header
