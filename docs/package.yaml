@@ -1,0 +1,223 @@
+schema: mega-review/1
+package: mu2edaq-diskwatcher
+tier: A
+group: monitoring
+repo:
+  url: git@github.com:Mu2e/mu2edaq-diskwatcher.git
+  exists: true
+  issues_enabled: true
+doc_dir: docs
+summary: >
+  Measure-only monitor of file mtime freshness, filesystem free space and file
+  sizes, serving three dashboards and a JSON API on port 5002, with one-hop
+  HTTP federation across the DAQ node fleet
+languages: [python, shell, javascript]
+loc: 9555
+
+runtime:
+  executables:
+    - name: mu2edaq-diskwatcher
+      kind: daemon
+      man_page: man/man1/mu2edaq-diskwatcher.1
+    - name: diskwatcher.py
+      kind: script
+      waiver: >
+        Source-checkout shim that inserts src/ on sys.path and calls
+        cli:main (diskwatcher.py:19). Same interface as the console script;
+        documented under SYNOPSIS in man/man1/mu2edaq-diskwatcher.1 rather
+        than given a page of its own.
+    - name: start-mu2edaq-diskwatcher.sh
+      kind: script
+      waiver: >
+        Documented in the START AND STOP SCRIPTS section of
+        man/man1/mu2edaq-diskwatcher.1:588, which covers both scripts,
+        their options and their per-node pid/log placement.
+    - name: stop-mu2edaq-diskwatcher.sh
+      kind: script
+      waiver: >
+        Documented in the START AND STOP SCRIPTS section of
+        man/man1/mu2edaq-diskwatcher.1:588.
+    - name: bootstrap_diskwatcher.sh
+      kind: script
+      waiver: >
+        Three-step venv bootstrap with no options; covered by README.md
+        Quick start. Its non-conforming name is finding DW-006.
+    - name: tools/diskwatcher-fleet.sh
+      kind: script
+      man_page: man/man1/diskwatcher-fleet.1
+    - name: tools/make-node-configs.sh
+      kind: script
+      man_page: man/man1/make-node-configs.1
+    - name: mu2edaq_diskwatcher
+      kind: library
+      waiver: >
+        Importable package, but it exposes no stable API for other packages:
+        nothing in the suite imports it, and the inter-instance contract is
+        HTTP (/api/state), documented in docs/INTERFACES.md. No man3 page.
+  services: []
+  ports:
+    - {port: 5002, proto: tcp, role: web-ui, source: "src/mu2edaq_diskwatcher/settings.py:137"}
+    - {port: 5002, proto: tcp, role: json-api, source: "src/mu2edaq_diskwatcher/web/api.py:51"}
+    - {port: 28999, proto: udp, role: service-discovery, source: "src/mu2edaq_diskwatcher/discovery.py:23"}
+  config_files:
+    - config/mu2edaq-diskwatcher.yaml
+    - config/mu2e-diskwatcher-mgr-01.yaml
+    - config/mu2e-diskwatcher-dl-01.yaml
+    - config/nodes/node.template.yaml
+    - config/nodes/aggregator.template.yaml
+  env_vars:
+    - MU2EDAQ_DISKWATCHER_CONFIG
+    - MU2EDAQ_DISKWATCHER_WEB_HOST
+    - MU2EDAQ_DISKWATCHER_WEB_PORT
+    - MU2EDAQ_DISKWATCHER_POLL_INTERVAL
+    - MU2EDAQ_DISKWATCHER_DEFAULT_DELAY
+    - MU2EDAQ_DISKWATCHER_DAEMON
+    - MU2EDAQ_DISKWATCHER_PID_FILE
+    - MU2EDAQ_DISKWATCHER_LOG_FILE
+    - MU2EDAQ_DISKWATCHER_RUN_DIR
+    - MU2EDAQ_DISKWATCHER_VERBOSE
+    - MU2EDAQ_DISKWATCHER_PEERS
+    - MU2EDAQ_DISKWATCHER_PEER_TIMEOUT
+    - MU2EDAQ_DISKWATCHER_PEER_INTERVAL
+    - MU2EDAQ_DISKWATCHER_DISCOVER_PEERS
+    - MU2EDAQ_DISKWATCHER_DISCOVER_FILTER
+    - CRS_PORT_HTTP
+    - CRS_STOP_TIMEOUT
+    - DW_RUN_DIR
+
+interactions:
+  depends_on:
+    - package: mu2edaq-discovery
+      via: import
+      direction: out
+      optional: true
+      evidence: "src/mu2edaq_diskwatcher/discovery.py:21"
+    - package: mu2edaq-discovery
+      via: import
+      direction: out
+      optional: true
+      evidence: "src/mu2edaq_diskwatcher/peers.py:183"
+    - package: mu2edaq-discovery
+      via: udp
+      direction: out
+      optional: true
+      evidence: "src/mu2edaq_diskwatcher/peers.py:197"
+    - package: mu2edaq-diskwatcher
+      via: http
+      direction: out
+      evidence: "src/mu2edaq_diskwatcher/peers.py:50"
+    - package: mu2edaq-operations
+      via: subprocess
+      direction: in
+      evidence: "start-mu2edaq-diskwatcher.sh:26"
+  depended_on_by: []
+  external: [ssh, flask, pyyaml]
+
+quality:
+  tests: {present: true, framework: pytest, count: 314}
+  ci: {present: false, workflows: []}
+  license: MIT
+  artifacts_clean: false   # config/mu2edaq-diskwatcher.log — finding DW-001
+
+findings:
+  - id: DW-001
+    severity: S2
+    type: bug
+    title: "[hygiene] committed 8,815-line runtime Flask log in config/"
+    issue: "pending"
+    fingerprint: 5a10df6d
+  - id: DW-002
+    severity: S3
+    type: enhancement
+    title: "[ci] 314 tests across 13 files with no CI workflow"
+    issue: "pending"
+    fingerprint: b9b19326
+  - id: DW-003
+    severity: S3
+    type: bug
+    title: "[config] node list is a fourth copy of the cluster topology and disagrees with the other three"
+    issue: "pending"
+    fingerprint: 5daa3ce8
+  - id: DW-004
+    severity: S3
+    type: bug
+    title: "[ssh] options: given as a bare Key=Value list is passed to ssh without -o"
+    issue: "pending"
+    fingerprint: 55737abc
+  - id: DW-005
+    severity: S3
+    type: enhancement
+    title: "[peers] --discover-peers federates any responder advertising app=diskwatcher"
+    issue: "pending"
+    fingerprint: 314212b4
+  - id: DW-006
+    severity: S4
+    type: bug
+    title: "[scripts] bootstrap_diskwatcher.sh does not follow the dashed naming convention"
+    issue: "pending"
+    fingerprint: 233f8311
+  - id: DW-007
+    severity: S4
+    type: documentation
+    title: "[docs] Flask development server is the production WSGI server, undocumented"
+    issue: "pending"
+    fingerprint: c3759933
+  - id: DW-008
+    severity: S4
+    type: documentation
+    title: "[docs] clock skew between watcher and remote/peer hosts is unhandled and unmentioned"
+    issue: "pending"
+    fingerprint: 40e2927f
+
+notes:
+  issue_filing: >
+    gh issue create against Mu2e/mu2edaq-diskwatcher was denied by this
+    environment's permission policy. One attempt was made and not retried, per
+    the review contract. All eight findings are staged in
+    docs/ISSUES-PENDING.md in the exact §6 body format with fingerprints.
+  dedup: >
+    Dedup ran against the full issue list (4 issues: #7, #6 open; #2, #1
+    closed) before any filing attempt. No fingerprint collision. Judgement
+    call recorded: DW-006 (bootstrap script naming) shares the token
+    "bootstrap_diskwatcher.sh" with open issue #7, which covers different
+    defects in the same file (not location-independent, false success
+    reporting). Filed as distinct because the defect and the fix differ; the
+    staged body cross-references #7 and notes a maintainer may prefer to fold
+    them into a comment.
+  man_layout: >
+    Four pages were git mv'd from a flat man/ into man/man1/ and man/man5/ per
+    contract §4, and their .TH lines normalised to the fixed header format
+    (ISO date, "Mu2e DAQ Manual"). All four pass mandoc -T lint with no ERROR
+    or UNSUPP and groff -t -mandoc -Tutf8 -ww -z with no stderr. Section
+    numbers match their directories. Note the conf.5 page contains a tbl table
+    (.TS at line 244) and must be rendered with groff -t; without the tbl
+    preprocessor groff emits a TW-register warning. man(1) invokes tbl
+    automatically, so this affects only direct groff invocations.
+    tests/test_packaging.py:30 reads man/<page> and will need its path updated
+    to man/man1/ and man/man5/ — flagged rather than changed, because editing
+    a test is a code change the contract forbids.
+  node_configs: >
+    All 27 files in config/nodes/ were re-rendered from node.template.yaml and
+    compared byte-for-byte against what is committed. Zero drift. The
+    aggregator's 28 static peers and 28 probe hosts are generated from the same
+    loop (tools/make-node-configs.sh:126-131) and cannot diverge from each
+    other.
+  topology: >
+    diskwatcher's node list (14 trk, 8 calo, 28 MC-2 hosts) is a strict subset
+    of both mu2edaq-operations/scripts/nodes_config.yaml (18 trk, 14 calo, 47
+    hosts) and mu2edaq-power-recovery/config/topology.yaml (18/14/48). It
+    invents no host the others lack, but 19 MC-2 hosts and the entire HEERC
+    test stand are uncovered. A fourth number exists in
+    mu2edaq-power-recovery/config/power-sequence.yaml (14 trk, 11 calo), which
+    matches neither. Filed as DW-003; nothing was changed, because whether the
+    subset is deliberate scoping or staleness is not determinable from this
+    repository.
+  federation_verified: >
+    The one-hop property is enforced in code, not convention. peers.py:50 fetches
+    /api/state with no query string, and web/api.py:161 only appends peers/
+    aggregate when _want_peers() reads a truthy ?peers= argument (api.py:83).
+    A peer's peers are therefore structurally unreachable. Self-reference is
+    separately refused by instance_id comparison (peers.py:135).
+  submodule_state: >
+    This submodule is ahead of its upstream and the superproject gitlink is
+    stale. Pre-existing; not touched. Nothing was pushed.
